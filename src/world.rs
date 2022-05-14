@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
 use std::thread::JoinHandle;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 
 use crate::entity;
 use crate::component;
+use crate::game_event;
 use crate::generator;
 use log::{info, trace, warn};
 
@@ -63,7 +65,9 @@ impl World {
             entities : HashMap::new()
         }
     }
-    pub fn process(&self, gens : &Vec<Box<dyn generator::Generator>>) {
+    pub fn process(&self, gens : &Vec<Box<dyn generator::Generator>>) -> Vec<Box<dyn game_event::GameEventInterface>> {
+        let mut res :Vec<Box<dyn game_event::GameEventInterface>> = Vec::new();
+        let aresult : Arc<RwLock<&mut Vec<Box<dyn game_event::GameEventInterface>>>> = Arc::new(RwLock::new(&mut res));
         std::thread::scope(move |s| {
             let mut tree  = EntityFilterTree::new(self);
             for g in gens {
@@ -77,11 +81,14 @@ impl World {
                 q.sort();
                 let stuff = tree.search(&q).clone();
                 let aworldc = aworld.clone();
+                let aeventc = aresult.clone();
                 s.spawn(move || {
-                    g.generate(aworldc, &stuff);
+                    let res = g.generate(aworldc, &stuff);
+                    aeventc.write().unwrap().extend(res);
                 });
-            }
+            }        
         });
+        res
     }
     pub fn spawn(&mut self, e : entity::Entity) {
         info!("Entity spawned into world");

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::entity;
+use crate::game_event;
 use crate::generator;
 use crate::world;
 use crate::component;
@@ -12,12 +13,14 @@ pub struct Gravity {
 }
 
 impl generator::Generator for Gravity {
-    
-    fn generate(&self, world : Arc<Mutex<&world::World>>,  ents : &Vec<entity::EntityId>) {
+    fn update(&mut self) {}
+    fn generate(&self, world : Arc<Mutex<&world::World>>,  ents : &Vec<entity::EntityId>)  -> Vec<Box<dyn game_event::GameEventInterface>>{
         for e in ents {        
-            let w = world.lock();
-            println!("{}",w.unwrap().get_entity_by_id(*e).unwrap().get::<pos::Pos>().unwrap().dat().x);
+            let w = world.lock().unwrap();
+            println!("gravity : {}",w.get_entity_by_id(*e).unwrap().get::<pos::Pos>().unwrap().dat().x);
+            println!("gravity : {}",w.get_entity_by_id(*e).unwrap().get::<mass::Mass>().unwrap().dat().m);
         }
+        Vec::new()
     }
     fn request(&self) -> Vec<component::ComponentTypeId> {
         vec![component::get_type_id::<pos::Pos>(), component::get_type_id::<mass::Mass>()]
