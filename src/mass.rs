@@ -1,12 +1,9 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::component;
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Mass {
-    pub m : u64
+    pub m: u64,
 }
-impl component::ComponentDataType for Mass {
-
-}
+impl component::ComponentDataType for Mass {}

@@ -1,25 +1,35 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::component;
 use crate::entity;
 use crate::game_event;
 use crate::generator;
-use crate::world;
-use crate::component;
-use crate::pos;
 use crate::mass;
+use crate::pos;
+use crate::world;
 use std::net::{TcpListener, TcpStream};
 
-pub struct Positioner {
-
-}
+pub struct Positioner {}
 
 impl generator::Generator for Positioner {
     fn update(&mut self) {}
-    fn generate(&self, world : Arc<Mutex<&world::World>>,  ents : &Vec<entity::EntityId>) ->  Vec<Box<dyn game_event::GameEventInterface>> {
-        for e in ents {        
+    fn generate(
+        &self,
+        world: Arc<Mutex<&world::World>>,
+        ents: &Vec<entity::EntityId>,
+    ) -> Vec<Box<dyn game_event::GameEventInterface>> {
+        for e in ents {
             let w = world.lock().unwrap();
-            println!("Positioner : {}",w.get_entity_by_id(*e).unwrap().get::<pos::Pos>().unwrap().dat().x);
+            println!(
+                "Positioner : {}",
+                w.get_entity_by_id(*e)
+                    .unwrap()
+                    .get::<pos::Pos>()
+                    .unwrap()
+                    .dat()
+                    .x
+            );
         }
         Vec::new()
     }
