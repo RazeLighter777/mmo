@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 use clap::Parser;
 use component::ComponentDataType;
+use serde_json::Value;
 mod args;
 mod component;
 mod entity;
@@ -24,15 +25,8 @@ mod world;
 use crate::{entity::EntityBuilder, world::World};
 use std::time::Duration;
 fn main() {
+    serde_json::from_str::<Value>("{\"hello\":3}").unwrap();
     let args = args::Args::parse();
-    let server = server::Server::new(&args);
-    let mut g = game::Game::new();
-    let grav = Box::new(gravity::Gravity {});
-    let ps = Box::new(positioner::Positioner {});
-    g.add_generator(grav);
-    g.add_generator(ps);
-    loop {
-        //g.get_world().spawn(entity::EntityBuilder::new().add(pos::Pos { x : 3., y : 3.}).add(mass::Mass { m : 36}).build());
-        g.tick();
-    }
+    let mut server = server::Server::new(&args);
+    server.run_game();
 }
