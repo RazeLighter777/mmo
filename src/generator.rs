@@ -4,7 +4,7 @@ use crate::game_event;
 use crate::world;
 use std::sync::Arc;
 use std::sync::Mutex;
-pub trait Generator: Sync {
+pub trait Generator: Sync + Send {
     fn update(&mut self) -> ();
     fn generate(
         &self,

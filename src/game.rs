@@ -5,9 +5,8 @@ use crate::game_event;
 use crate::game_event::GameEvent;
 use crate::generator;
 use crate::handler;
+use crate::server;
 use crate::world;
-use rusqlite::{params, Connection, Result};
-
 pub struct Game {
     world: world::World,
     generators: Vec<Box<dyn generator::Generator>>,
@@ -17,16 +16,6 @@ pub struct Game {
 
 impl Game {
     pub fn new() -> Self {
-        let conn = Connection::open("test.db").unwrap();
-        conn.execute(
-            "CREATE TABLE person (
-            id    INTEGER PRIMARY KEY,
-            name  TEXT NOT NULL,
-            data  BLOB
-        )",
-            [],
-        );
-        conn.close();
         Game {
             world: world::World::new(),
             generators: Vec::new(),
