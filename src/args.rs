@@ -26,4 +26,11 @@ pub struct Args {
         help = "name of server database to use"
     )]
     pub database_name: String,
+    #[clap(
+        long,
+        short,
+        default_value = "secret",
+        help = "name of server database to use"
+    )]
+    pub secret: String,
 }

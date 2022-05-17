@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use serde_json::json;
+
 use crate::event_collector;
 use crate::game_event;
 use crate::game_event::GameEvent;
@@ -56,7 +58,7 @@ impl Game {
         let mut pgl = self.pending_reqs.lock();
         let mut pr = pgl.unwrap();
         for i in pr.iter_mut() {
-            i.handle(server::ServerResponse {  })
+            i.handle(server::ServerResponse::new(json!({"response":"good"})));
         }
     }
 }
