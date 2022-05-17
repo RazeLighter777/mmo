@@ -58,7 +58,10 @@ impl Game {
         let mut pgl = self.pending_reqs.lock();
         let mut pr = pgl.unwrap();
         for i in pr.iter_mut() {
-            i.handle(server::ServerResponse::new(json!({"response":"good"})));
+            i.handle(server::ServerResponse::new(
+                server::ServerResponseType::Ok {},
+            ));
         }
+        pr.clear();
     }
 }

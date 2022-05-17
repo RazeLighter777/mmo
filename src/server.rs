@@ -13,34 +13,48 @@ use mysql::Opts;
 use mysql::Pool;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::json;
 use serde_json::Value;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
 
 pub struct Server {
     dburl: String,
     pool: Pool,
     game: Arc<Mutex<game::Game>>,
     key: EncodingKey,
+    request_rd: Receiver<ServerRequest>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum ServerRequestType {
-    LoadGame = 0,
-    CloseGame = 1,
+    LoadGame { world_name: String },
+    Login { user: String, password: String },
+    Logout {},
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ServerResponseType {
+    AuthSuccess { session_token: String },
+    Ok {},
+    AuthFailure {},
 }
 pub struct ServerRequest {
     sn: Sender<ServerResponse>,
-    dat: Value,
+    dat: ServerRequestType,
 }
 
 impl ServerRequest {
     pub fn handle(&self, response: ServerResponse) {
         self.sn.send(response);
     }
-    pub fn new(dat: Value) -> (Receiver<ServerResponse>, ServerRequest) {
+    pub fn new(dat: ServerRequestType) -> (Receiver<ServerResponse>, ServerRequest) {
         let (tx, rx) = crossbeam_channel::unbounded();
         (rx, Self { sn: tx, dat: dat })
     }
@@ -50,11 +64,11 @@ struct ServerClaims {
     user_name: String,
 }
 pub struct ServerResponse {
-    dat: Value,
+    dat: ServerResponseType,
 }
 
 impl ServerResponse {
-    pub fn new(dat: Value) -> ServerResponse {
+    pub fn new(dat: ServerResponseType) -> ServerResponse {
         Self { dat: dat }
     }
 }
@@ -130,7 +144,10 @@ impl Server {
     pub fn user_exists(&self, username: &str) -> bool {
         let mut conn = self.get_conn().expect("Could not get conn to create user");
         let res: Option<bool> = conn
-            .exec_first("SELECT admin FROM users WHERE user_name = :username", params! { "username" => username })
+            .exec_first(
+                "SELECT admin FROM users WHERE user_name = :username",
+                params! { "username" => username },
+            )
             .expect("Error selecting user");
         res.is_some()
     }
@@ -139,9 +156,10 @@ impl Server {
             .get_conn()
             .expect("Could not get conn to verify session");
         let user: Option<String> = conn
-            .query_first(
-                "SELECT (password_hash) FROM users WHERE user_name = \'admin\'",
-                )
+            .exec_first(
+                "SELECT (password_hash) FROM users WHERE user_name = :username",
+                params! {"username" => username},
+            )
             .expect("Could not execute query to verify session");
         user.as_ref().unwrap();
         match user {
@@ -175,6 +193,8 @@ impl Server {
         None
     }
     pub fn new(args: &args::Args) -> Server {
+        let (tx, rx) = crossbeam_channel::unbounded::<ServerRequest>();
+
         let key = EncodingKey::from_secret(args.secret.as_ref());
         let dburl = format!(
             "mysql://{}:{}@{}/{}",
@@ -199,6 +219,7 @@ impl Server {
                 match c {
                     Ok(mut stream) => {
                         let gc2 = gc1.clone();
+                        let tx = tx.clone();
                         std::thread::spawn(move || {
                             //let mut gu = gc2.lock().unwrap();
                             //gu.handle(req); // should be non blocking
@@ -212,24 +233,35 @@ impl Server {
                                         s.trim_end_matches(char::from(0)),
                                     ) {
                                         Ok(v) => {
-                                            let (rx, req) = ServerRequest::new(v);
-                                            let mut gl = gc2.lock();
-                                            let mut gu = gl.unwrap();
-                                            gu.handle(req);
-                                            drop(gu);
-                                            match rx.recv_timeout(std::time::Duration::from_secs(5))
-                                            {
-                                                Ok(dat) => {
-                                                    stream.write(
-                                                        serde_json::to_string(&dat.dat)
-                                                            .expect("error writing response.")
-                                                            .as_bytes(),
-                                                    );
+                                            match serde_json::from_value::<ServerRequestType>(v) {
+                                                Ok(rtype) => {
+                                                    let (rx, req) = ServerRequest::new(rtype);
+                                                    tx.send(req);
+                                                    match rx.recv_timeout(
+                                                        std::time::Duration::from_secs(500),
+                                                    ) {
+                                                        Ok(dat) => {
+                                                            stream.write(
+                                                                serde_json::to_string(&dat.dat)
+                                                                    .expect(
+                                                                        "error writing response.",
+                                                                    )
+                                                                    .as_bytes(),
+                                                            );
+                                                            drop(stream);
+                                                        }
+                                                        Err(e) => {
+                                                            println!("Server did not respond to request.")
+                                                        }
+                                                    }
                                                 }
                                                 Err(e) => {
-                                                    println!("Server did not respond to request.")
+                                                    println!(
+                                                        "Was not valid server request type: {}",
+                                                        e
+                                                    );
                                                 }
-                                            }
+                                            };
                                         }
                                         Err(e) => {
                                             println!("Invalid json!, {}", e);
@@ -252,21 +284,65 @@ impl Server {
             pool: pool,
             game: g2,
             key: key,
+            request_rd: rx,
         }
     }
     pub fn handle(&mut self, sr: &ServerRequest) {}
     pub fn get_conn(&self) -> Result<mysql::PooledConn, mysql::Error> {
         self.pool.get_conn()
     }
-    pub fn run_game(&mut self) {
+    pub fn run_game(self) {
         self.initialize_database();
         if !self.user_exists("admin") {
             println!("Creating user admin with default password \"password\"");
             self.create_user("admin", "password");
         }
+        let rw_self = Arc::new(RwLock::new(self));
+        let rw_poll_self = rw_self.clone();
+        let rw_loop_self = rw_self.clone();
+        std::thread::spawn(move || {
+            let mut x = 0;
+            loop {
+                let r0 = rw_poll_self.read().unwrap();
+                
+                for i in r0.request_rd.recv() {
+                    let rm = rw_self.clone();
+                    x += 1;
+                    println!("Handled: {}", x);
+                    std::thread::spawn(move || {
+                        let r1 = rm.read().unwrap();
+                        match &i.dat {
+                            ServerRequestType::LoadGame { world_name } => {
+                                println!("Loading a game");
+                                //i.handle(ServerResponse { dat: json!({"good" :3}) });
+                            }
+                            ServerRequestType::Login { user, password } => {
+                                println!("Logging in . . .");
+                                match r1.generate_session(user.as_str(), password.as_str()) {
+                                    Some(s) => {
+                                        i.handle(ServerResponse::new(
+                                            ServerResponseType::AuthSuccess { session_token: s },
+                                        ));
+                                    }
+                                    None => {
+                                        i.handle(ServerResponse::new(
+                                            ServerResponseType::AuthFailure {},
+                                        ));
+                                    }
+                                }
+                            }
+                            other => {
+                                //send it to the appropriate game
+                            }
+                        }
+                        drop(r1);
+                    });
+                }
+            }
+        });
         loop {
-            let mut lg = self.game.lock();
-            let mut g = lg.unwrap();
+            let mut lg = rw_loop_self.read().unwrap();
+            let mut g = lg.game.lock().unwrap();
             g.tick();
             drop(g);
             std::thread::sleep(std::time::Duration::from_millis(100));
