@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::RwLock;
 
 use serde_json::json;
 
@@ -30,10 +31,8 @@ impl Game {
             pending_reqs: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    pub fn handle(&mut self, req: server::ServerRequest) {
-        //TODO: pass response to other things . . .
-        let mut ul = self.pending_reqs.lock().unwrap();
-        ul.push(req);
+    pub fn handle(sv : Arc<RwLock<Self>>, request : ServerRequest) {
+        
     }
     pub fn add_generator(&mut self, generator: Box<dyn generator::Generator>) {
         self.generators.push(generator);

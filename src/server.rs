@@ -27,7 +27,7 @@ use std::sync::RwLock;
 pub struct Server {
     dburl: String,
     pool: Pool,
-    game: HashMap<u16,Arc<Mutex<game::Game>>>,
+    game: HashMap<String,Arc<RwLock<game::Game>>>,
     key: EncodingKey,
     listen_url : String
 }
@@ -35,7 +35,7 @@ pub struct Server {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerRequestType {
-    LoadGame { world_name: String },
+    CreateGame { world_name: String },
     Login { user: String, password: String },
     Logout {},
 }
@@ -195,52 +195,72 @@ impl Server {
         None
     }
     fn listen_thread(listener : TcpListener, sv : Arc<RwLock<Self>>) {
-        for (mut conn,addr) in listener.accept() {
-            //spawn a worker thread
-            let svnew = sv.clone();
-            std::thread::spawn(move || {
-                let mut buf = &mut [0; 1024];
-                conn.read(buf);
-                match std::str::from_utf8(buf)  {
-                    Ok(buf) => {
-                        match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))  {
-                            Ok(buf) => {
-                                match serde_json::from_value::<ServerRequestType>(buf) {
-                                    Ok(buf) => {
-                                        let (rx, req) = ServerRequest::new(buf);
-                                        Self::worker_thread(req, svnew);
-                                        match rx.recv_timeout(std::time::Duration::from_secs(500)) {
-                                            Ok(dat) => {
-                                                conn.write(serde_json::to_string(&dat.dat).unwrap().as_bytes());
-                                            },
-                                            Err(_) => {
-                                                println!("Timed out");
-                                            },
-                                        }
-                                    },
-                                    Err(_) => {
-                                        println!("Not a valid ServerRequestType")
-                                    },
-                                }
-                            },
-                            Err(_) => {
-                                println!("Not a valid JSON string")
-                            },
-                        }
-                    },
-                    Err(_) => {
-                        println!("Not a valid utf-8 string")
-                    },
-                }
-            });
+        loop {
+            for (mut conn,addr) in listener.accept() {
+                //spawn a worker thread
+                let svnew = sv.clone();
+                std::thread::spawn(move || {
+                    let mut buf = &mut [0; 1024];
+                    conn.read(buf);
+                    match std::str::from_utf8(buf)  {
+                        Ok(buf) => {
+                            match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))  {
+                                Ok(buf) => {
+                                    match serde_json::from_value::<ServerRequestType>(buf) {
+                                        Ok(buf) => {
+                                            let (rx, req) = ServerRequest::new(buf);
+                                            Self::worker_thread(req, svnew);
+                                            match rx.recv_timeout(std::time::Duration::from_secs(500)) {
+                                                Ok(dat) => {
+                                                    conn.write(serde_json::to_string(&dat.dat).unwrap().as_bytes());
+                                                },
+                                                Err(_) => {
+                                                    println!("Timed out");
+                                                },
+                                            }
+                                        },
+                                        Err(_) => {
+                                            println!("Not a valid ServerRequestType")
+                                        },
+                                    }
+                                },
+                                Err(_) => {
+                                    println!("Not a valid JSON string")
+                                },
+                            }
+                        },
+                        Err(_) => {
+                            println!("Not a valid utf-8 string")
+                        },
+                    }
+                });
+            }
         }
+        
+    }
+    pub fn create_world(&mut self, world_name : &str) {
+        let g = game::Game::new();
+        self.game.insert(String::from(world_name), Arc::new(RwLock::new(g)));
     }
     fn worker_thread(request : ServerRequest, sv : Arc<RwLock<Self>>) {
-        match request {
-            
-            _ => {
-
-            }
+        match &request.dat {
+            ServerRequestType::CreateGame { world_name } => {
+                let mut guard = sv.write().unwrap();
+                guard.create_world(&world_name);
+                request.handle(ServerResponse::new(ServerResponseType::Ok {  }));
+            },
+            ServerRequestType::Login { user, password } => {
+                let guard = sv.read().unwrap();
+                match guard.generate_session(&user, &password) {
+                    Some(token) =>  {
+                        request.handle(ServerResponse::new(ServerResponseType::AuthSuccess { session_token: token } ));
+                    },
+                    None => {
+                        request.handle(ServerResponse::new(ServerResponseType::AuthFailure {  }));
+                    },
+                }
+            },
+            ServerRequestType::Logout {  } => todo!(),
         }
     }
     pub fn new(args: &args::Args) -> Server {
@@ -281,6 +301,9 @@ impl Server {
         std::thread::spawn(move || {
             Self::listen_thread(listener, sv.clone());
         });
+        loop {
+
+        }
     }
 }
 
