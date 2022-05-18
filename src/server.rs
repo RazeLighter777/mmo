@@ -15,9 +15,11 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
+use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -25,9 +27,9 @@ use std::sync::RwLock;
 pub struct Server {
     dburl: String,
     pool: Pool,
-    game: Arc<Mutex<game::Game>>,
+    game: HashMap<u16,Arc<Mutex<game::Game>>>,
     key: EncodingKey,
-    request_rd: Receiver<ServerRequest>,
+    listen_url : String
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,6 +194,55 @@ impl Server {
         }
         None
     }
+    fn listen_thread(listener : TcpListener, sv : Arc<RwLock<Self>>) {
+        for (mut conn,addr) in listener.accept() {
+            //spawn a worker thread
+            let svnew = sv.clone();
+            std::thread::spawn(move || {
+                let mut buf = &mut [0; 1024];
+                conn.read(buf);
+                match std::str::from_utf8(buf)  {
+                    Ok(buf) => {
+                        match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))  {
+                            Ok(buf) => {
+                                match serde_json::from_value::<ServerRequestType>(buf) {
+                                    Ok(buf) => {
+                                        let (rx, req) = ServerRequest::new(buf);
+                                        Self::worker_thread(req, svnew);
+                                        match rx.recv_timeout(std::time::Duration::from_secs(500)) {
+                                            Ok(dat) => {
+                                                conn.write(serde_json::to_string(&dat.dat).unwrap().as_bytes());
+                                            },
+                                            Err(_) => {
+                                                println!("Timed out");
+                                            },
+                                        }
+                                    },
+                                    Err(_) => {
+                                        println!("Not a valid ServerRequestType")
+                                    },
+                                }
+                            },
+                            Err(_) => {
+                                println!("Not a valid JSON string")
+                            },
+                        }
+                    },
+                    Err(_) => {
+                        println!("Not a valid utf-8 string")
+                    },
+                }
+            });
+        }
+    }
+    fn worker_thread(request : ServerRequest, sv : Arc<RwLock<Self>>) {
+        match request {
+            
+            _ => {
+
+            }
+        }
+    }
     pub fn new(args: &args::Args) -> Server {
         let (tx, rx) = crossbeam_channel::unbounded::<ServerRequest>();
 
@@ -203,88 +254,13 @@ impl Server {
         println!("Connecting to database at {}", args.database_host);
         let ops = Opts::from_url(&dburl).expect("Database URL invalid");
         let pool = Pool::new(ops).expect("Could not establish database connection");
-        println!("Connection establised");
-        let listener = TcpListener::bind(format!("{}:{}", args.ip, args.port))
-            .expect("Could not bind to ip/port");
-        //spawn the listener thread
-        println!(
-            "Listening on {}:{} for incoming connections",
-            args.ip, args.port
-        );
-        let mut g = Arc::new(Mutex::new(game::Game::new()));
-        let mut g2 = g.clone();
-        let lt = std::thread::spawn(move || {
-            let gc1 = g.clone();
-            for c in listener.incoming() {
-                match c {
-                    Ok(mut stream) => {
-                        let gc2 = gc1.clone();
-                        let tx = tx.clone();
-                        std::thread::spawn(move || {
-                            //let mut gu = gc2.lock().unwrap();
-                            //gu.handle(req); // should be non blocking
-                            let mut buf = &mut [0; 1024];
-                            //stream.set_read_timeout(Some(std::time::Duration::from_secs(1)));
-                            stream.read(buf);
-                            match std::str::from_utf8(buf) {
-                                Ok(s) => {
-                                    println!("json {}, len {} ", s, s.len());
-                                    match serde_json::from_str::<Value>(
-                                        s.trim_end_matches(char::from(0)),
-                                    ) {
-                                        Ok(v) => {
-                                            match serde_json::from_value::<ServerRequestType>(v) {
-                                                Ok(rtype) => {
-                                                    let (rx, req) = ServerRequest::new(rtype);
-                                                    tx.send(req);
-                                                    match rx.recv_timeout(
-                                                        std::time::Duration::from_secs(500),
-                                                    ) {
-                                                        Ok(dat) => {
-                                                            stream.write(
-                                                                serde_json::to_string(&dat.dat)
-                                                                    .expect(
-                                                                        "error writing response.",
-                                                                    )
-                                                                    .as_bytes(),
-                                                            );
-                                                            drop(stream);
-                                                        }
-                                                        Err(e) => {
-                                                            println!("Server did not respond to request.")
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    println!(
-                                                        "Was not valid server request type: {}",
-                                                        e
-                                                    );
-                                                }
-                                            };
-                                        }
-                                        Err(e) => {
-                                            println!("Invalid json!, {}", e);
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    println!("Stream wasn't UTF-8")
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => {}
-                }
-            }
-        });
-        println!("Listening for inbound on addr {}:{}", args.ip, args.port);
+        println!("Connection establised");      
         Self {
             dburl: dburl,
+            listen_url : format!("{}:{}",args.ip,args.port),
             pool: pool,
-            game: g2,
+            game: HashMap::new(),
             key: key,
-            request_rd: rx,
         }
     }
     pub fn handle(&mut self, sr: &ServerRequest) {}
@@ -297,55 +273,17 @@ impl Server {
             println!("Creating user admin with default password \"password\"");
             self.create_user("admin", "password");
         }
-        let rw_self = Arc::new(RwLock::new(self));
-        let rw_poll_self = rw_self.clone();
-        let rw_loop_self = rw_self.clone();
+        let listener = TcpListener::bind(&self.listen_url)
+            .expect("Could not bind to ip/port");  
+        //create server arc
+        let sv = Arc::new(RwLock::new(self));
+        //create server listen thread
         std::thread::spawn(move || {
-            let mut x = 0;
-            loop {
-                let r0 = rw_poll_self.read().unwrap();
-                
-                for i in r0.request_rd.recv() {
-                    let rm = rw_self.clone();
-                    x += 1;
-                    println!("Handled: {}", x);
-                    std::thread::spawn(move || {
-                        let r1 = rm.read().unwrap();
-                        match &i.dat {
-                            ServerRequestType::LoadGame { world_name } => {
-                                println!("Loading a game");
-                                //i.handle(ServerResponse { dat: json!({"good" :3}) });
-                            }
-                            ServerRequestType::Login { user, password } => {
-                                println!("Logging in . . .");
-                                match r1.generate_session(user.as_str(), password.as_str()) {
-                                    Some(s) => {
-                                        i.handle(ServerResponse::new(
-                                            ServerResponseType::AuthSuccess { session_token: s },
-                                        ));
-                                    }
-                                    None => {
-                                        i.handle(ServerResponse::new(
-                                            ServerResponseType::AuthFailure {},
-                                        ));
-                                    }
-                                }
-                            }
-                            other => {
-                                //send it to the appropriate game
-                            }
-                        }
-                        drop(r1);
-                    });
-                }
-            }
+            Self::listen_thread(listener, sv.clone());
         });
-        loop {
-            let mut lg = rw_loop_self.read().unwrap();
-            let mut g = lg.game.lock().unwrap();
-            g.tick();
-            drop(g);
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
     }
+}
+
+fn decode_valid_requests(stream : &TcpStream) -> Option<ServerRequest> {
+    None
 }
