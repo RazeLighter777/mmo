@@ -25,7 +25,6 @@ mod world;
 use crate::{entity::EntityBuilder, world::World};
 use std::time::Duration;
 fn main() {
-    serde_json::from_str::<Value>("{\"hello\":3}").unwrap();
     let args = args::Args::parse();
     let mut server = server::Server::new(&args);
     server.run_game();

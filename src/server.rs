@@ -27,9 +27,9 @@ use std::sync::RwLock;
 pub struct Server {
     dburl: String,
     pool: Pool,
-    game: HashMap<String,Arc<RwLock<game::Game>>>,
-    key: EncodingKey,
-    listen_url : String
+    game: HashMap<String, Arc<RwLock<game::Game>>>,
+    key: String,
+    listen_url: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,24 +46,55 @@ pub enum ServerResponseType {
     AuthSuccess { session_token: String },
     Ok {},
     AuthFailure {},
+    TimedOut {},
+    PermissionDenied {}
 }
 pub struct ServerRequest {
     sn: Sender<ServerResponse>,
     dat: ServerRequestType,
+    world : Option<String>, 
+    session_token : Option<String>,
 }
 
 impl ServerRequest {
     pub fn handle(&self, response: ServerResponse) {
         self.sn.send(response);
     }
-    pub fn new(dat: ServerRequestType) -> (Receiver<ServerResponse>, ServerRequest) {
+    pub fn new(dat: Value) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
+        let op : Option<String> = match dat.get("world") {
+            Some(val) => {
+                val.as_str().map(Into::into)
+            },
+            None => {
+                None
+            },
+        };
+
+        let session_token : Option<String> = match dat.get("session_token") {
+            Some(val) => {
+                val.as_str().map(Into::into)
+            },
+            None => {
+                None
+            },
+        };
         let (tx, rx) = crossbeam_channel::unbounded();
-        (rx, Self { sn: tx, dat: dat })
+        Ok((
+            rx,
+            Self {
+                sn: tx,
+                dat: serde_json::from_value(dat)?,
+                world : op,
+                session_token : session_token
+            },
+        ))
     }
 }
 #[derive(Serialize, Deserialize)]
-struct ServerClaims {
-    user_name: String,
+pub struct ServerClaims {
+    pub user_name: String,
+    pub is_admin : bool,
+    pub exp : usize
 }
 pub struct ServerResponse {
     dat: ServerResponseType,
@@ -130,13 +161,13 @@ impl Server {
         )
         .expect("Error creating components table");
     }
-    pub fn create_user(&self, username: &str, password: &str) -> bool {
+    pub fn create_user(&self, username: &str, password: &str, is_admin : bool) -> bool {
         let mut conn = self.get_conn().expect("Could not get conn to create user");
-        let pass = bcrypt::hash_with_result(password, 10).expect("Could not hash password");
+        let pass = bcrypt::hash_with_result(password, 6).expect("Could not hash password");
         if !self.user_exists(username) {
             conn.exec_drop(
-                "INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, true)",
-                (username, pass.to_string()),
+                "INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, ?)",
+                (username, pass.to_string(), is_admin),
             )
             .expect("Could not insert user");
             return true;
@@ -153,23 +184,36 @@ impl Server {
             .expect("Error selecting user");
         res.is_some()
     }
+    pub fn get_claims(&self, session : &str) -> Option<ServerClaims> {
+        let token = decode::<ServerClaims>(session, &DecodingKey::from_secret(self.key.as_ref()), &Validation::default());
+        match token {
+            Ok(tok) => {
+                Some(tok.claims)
+            }
+            Err(e) => {
+                println!("{}",e);
+                None
+            }
+        }
+    }
     pub fn generate_session(&self, username: &str, password: &str) -> Option<String> {
         let mut conn = self
             .get_conn()
             .expect("Could not get conn to verify session");
-        let user: Option<String> = conn
+        let user : Option<(String,bool)> = conn
             .exec_first(
-                "SELECT (password_hash) FROM users WHERE user_name = :username",
-                params! {"username" => username},
+                "SELECT password_hash, admin FROM users WHERE user_name = :username",
+                params! {"username" => username},  
             )
             .expect("Could not execute query to verify session");
-        user.as_ref().unwrap();
         match user {
-            Some(u) => match bcrypt::verify(password, &u) {
+            Some((u,is_admin)) => match bcrypt::verify(password, &u) {
                 Ok(b) => {
                     if b {
                         let claims = ServerClaims {
                             user_name: String::from(username),
+                            is_admin : is_admin,
+                            exp: 10000000000
                         };
                         match encode(
                             &Header::default(),
@@ -194,41 +238,50 @@ impl Server {
         }
         None
     }
-    fn listen_thread(listener : TcpListener, sv : Arc<RwLock<Self>>) {
+    fn listen_thread(listener: TcpListener, sv: Arc<RwLock<Self>>) {
         loop {
-            for (mut conn,addr) in listener.accept() {
+            for (mut conn, addr) in listener.accept() {
                 //spawn a worker thread
                 let svnew = sv.clone();
                 std::thread::spawn(move || {
                     let mut buf = &mut [0; 1024];
                     conn.read(buf);
-                    match std::str::from_utf8(buf)  {
+                    match std::str::from_utf8(buf) {
                         Ok(buf) => {
-                            match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))  {
-                                Ok(buf) => {
-                                    match serde_json::from_value::<ServerRequestType>(buf) {
-                                        Ok(buf) => {
-                                            let (rx, req) = ServerRequest::new(buf);
-                                            Self::worker_thread(req, svnew);
-                                            match rx.recv_timeout(std::time::Duration::from_secs(500)) {
-                                                Ok(dat) => {
-                                                    conn.write(serde_json::to_string(&dat.dat).unwrap().as_bytes());
-                                                },
-                                                Err(_) => {
-                                                    println!("Timed out");
-                                                },
+                            match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))
+                            {
+                                Ok(buf) => match ServerRequest::new(buf) {
+                                    Ok((rx, req)) => {
+                                        Self::worker_thread(req, svnew);
+                                        match rx.recv_timeout(std::time::Duration::from_secs(1)) {
+                                            Ok(dat) => {
+                                                conn.write(
+                                                    serde_json::to_string(&dat.dat)
+                                                        .unwrap()
+                                                        .as_bytes(),
+                                                );
                                             }
-                                        },
-                                        Err(_) => {
-                                            println!("Not a valid ServerRequestType")
-                                        },
+                                            Err(_) => {
+                                                conn.write(
+                                                    serde_json::to_string(
+                                                        &ServerResponseType::TimedOut {},
+                                                    )
+                                                    .unwrap()
+                                                    .as_bytes(),
+                                                );
+                                                println!("Timed out");
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        println!("Not a valid server request")
                                     }
                                 },
                                 Err(_) => {
-                                    println!("Not a valid JSON string")
-                                },
+                                    println!("Not a valid json string")
+                                }
                             }
-                        },
+                        }
                         Err(_) => {
                             println!("Not a valid utf-8 string")
                         },
@@ -236,37 +289,81 @@ impl Server {
                 });
             }
         }
-        
     }
-    pub fn create_world(&mut self, world_name : &str) {
+    pub fn create_world(&mut self, world_name: &str) {
         let g = game::Game::new();
-        self.game.insert(String::from(world_name), Arc::new(RwLock::new(g)));
+        let gmrwlock = Arc::new(RwLock::new(g));
+        let gmrwlock2 = gmrwlock.clone();
+        game::Game::start_game(gmrwlock);
+        self.game.insert(String::from(world_name), gmrwlock2);
     }
-    fn worker_thread(request : ServerRequest, sv : Arc<RwLock<Self>>) {
+    fn is_request_admin(&self, request: &ServerRequest) -> bool {
+        match &request.session_token {
+            Some(token) => {
+                match self.get_claims(token) {
+                    Some(claim) => {
+                        claim.is_admin
+                    }
+                    None => {
+                        false
+                    }
+                }
+            }
+            None => {
+                false 
+            }
+        }
+    }
+    fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
         match &request.dat {
             ServerRequestType::CreateGame { world_name } => {
-                let mut guard = sv.write().unwrap();
-                guard.create_world(&world_name);
-                request.handle(ServerResponse::new(ServerResponseType::Ok {  }));
-            },
+                let guard0 = sv.read().unwrap();
+                if guard0.is_request_admin(&request) {
+                    drop(guard0);
+                    let mut guard = sv.write().unwrap();
+                    guard.create_world(&world_name);
+                    request.handle(ServerResponse::new(ServerResponseType::Ok {}));
+                } else {
+                    request.handle(ServerResponse::new(ServerResponseType::PermissionDenied {  }));
+                }
+            }
             ServerRequestType::Login { user, password } => {
                 let guard = sv.read().unwrap();
                 match guard.generate_session(&user, &password) {
-                    Some(token) =>  {
-                        request.handle(ServerResponse::new(ServerResponseType::AuthSuccess { session_token: token } ));
-                    },
+                    Some(token) => {
+                        request.handle(ServerResponse::new(ServerResponseType::AuthSuccess {
+                            session_token: token,
+                        }));
+                    }
                     None => {
-                        request.handle(ServerResponse::new(ServerResponseType::AuthFailure {  }));
-                    },
+                        request.handle(ServerResponse::new(ServerResponseType::AuthFailure {}));
+                    }
                 }
-            },
-            ServerRequestType::Logout {  } => todo!(),
+            }
+            other => {
+
+            }
+        }
+        match &request.world {
+            Some(world_name) => {
+                let guard = sv.read().unwrap();
+                match guard.game.get(world_name) {
+                    Some(gm) => {
+                        let gmc = gm.clone();
+                        game::Game::handle(gmc,request);
+                    },
+                    None => todo!(),
+                }
+            }
+            None => {
+
+            }
         }
     }
     pub fn new(args: &args::Args) -> Server {
         let (tx, rx) = crossbeam_channel::unbounded::<ServerRequest>();
 
-        let key = EncodingKey::from_secret(args.secret.as_ref());
+        let key = args.secret.clone();
         let dburl = format!(
             "mysql://{}:{}@{}/{}",
             args.database_user, args.database_pass, args.database_host, args.database_name
@@ -274,10 +371,10 @@ impl Server {
         println!("Connecting to database at {}", args.database_host);
         let ops = Opts::from_url(&dburl).expect("Database URL invalid");
         let pool = Pool::new(ops).expect("Could not establish database connection");
-        println!("Connection establised");      
+        println!("Connection establised");
         Self {
             dburl: dburl,
-            listen_url : format!("{}:{}",args.ip,args.port),
+            listen_url: format!("{}:{}", args.ip, args.port),
             pool: pool,
             game: HashMap::new(),
             key: key,
@@ -291,22 +388,19 @@ impl Server {
         self.initialize_database();
         if !self.user_exists("admin") {
             println!("Creating user admin with default password \"password\"");
-            self.create_user("admin", "password");
+            self.create_user("admin", "password", true); 
         }
-        let listener = TcpListener::bind(&self.listen_url)
-            .expect("Could not bind to ip/port");  
+        let listener = TcpListener::bind(&self.listen_url).expect("Could not bind to ip/port");
         //create server arc
         let sv = Arc::new(RwLock::new(self));
         //create server listen thread
         std::thread::spawn(move || {
             Self::listen_thread(listener, sv.clone());
         });
-        loop {
-
-        }
+        loop {}
     }
 }
 
-fn decode_valid_requests(stream : &TcpStream) -> Option<ServerRequest> {
+fn decode_valid_requests(stream: &TcpStream) -> Option<ServerRequest> {
     None
 }

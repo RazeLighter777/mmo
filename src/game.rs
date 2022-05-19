@@ -31,27 +31,37 @@ impl Game {
             pending_reqs: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    pub fn handle(sv : Arc<RwLock<Self>>, request : ServerRequest) {
-        
-    }
+    pub fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}
     pub fn add_generator(&mut self, generator: Box<dyn generator::Generator>) {
         self.generators.push(generator);
     }
 
-    pub fn tick(&mut self) {
-        //handle inputs
-        self.handle_queued_requests();
-        for g in &mut self.generators {
-            g.update();
-        }
-        self.event_collector
-            .add_events(self.world.process(&self.generators));
-        for h in &self.handlers {
-            h.handle(&self.event_collector);
-        }
-    }
+    pub fn tick(&mut self) {}
     pub fn get_world(&mut self) -> &mut world::World {
         &mut self.world
+    }
+    pub fn start_game(gm: Arc<RwLock<Self>>) {
+        std::thread::spawn(move || {
+            loop {
+                //borrow as writable
+                let mut gmw1 = gm.write().unwrap();
+                for g in &mut gmw1.generators {
+                    g.update();
+                }
+                drop(gmw1);
+                let gmr1 = gm.read().unwrap();
+                let evs = gmr1.world.process(&gmr1.generators);
+                drop(gmr1);
+                let mut gmw2 = gm.write().unwrap();
+                gmw2.event_collector.add_events(evs);
+                for h in &gmw2.handlers {
+                    h.handle(&gmw2.event_collector);
+                }
+                drop(gmw2);
+                println!("Ticked!");
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        });
     }
     fn handle_queued_requests(&mut self) {
         let mut pgl = self.pending_reqs.lock();
