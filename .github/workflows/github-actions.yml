@@ -1,0 +1,8 @@
+name: mmo-tests
+on: [push]
+jobs:
+  Compile:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Compilation beginning . . . "
+      - run: cargo build --verbose
