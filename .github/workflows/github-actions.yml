@@ -5,4 +5,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "Compilation beginning . . . "
-      - run: cargo build --verbose
+      - name: Install nightly rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Compile
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
