@@ -22,9 +22,12 @@ mod pos;
 mod positioner;
 mod server;
 mod world;
+mod raws;
 use crate::{entity::EntityBuilder, world::World};
 use std::time::Duration;
 fn main() {
+    let t  = raws::RawTree::new("./raws");
+    println!("{}",t.search(&vec!["mmo".to_owned(), "null".to_owned()]).unwrap().dat().get("path").unwrap().as_str().unwrap());
     let args = args::Args::parse();
     let mut server = server::Server::new(&args);
     server.run_game();
