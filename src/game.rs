@@ -3,13 +3,16 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
+use mysql::PooledConn;
 use serde_json::json;
 
+use crate::context;
 use crate::event_collector;
 use crate::game_event;
 use crate::game_event::GameEvent;
 use crate::generator;
 use crate::handler;
+use crate::raws::RawTree;
 use crate::server;
 use crate::server::ServerRequest;
 use crate::world;
@@ -19,16 +22,18 @@ pub struct Game {
     handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
     pending_reqs: Arc<Mutex<Vec<ServerRequest>>>,
+    raws : RawTree
 }
 
 impl Game {
-    pub fn new() -> Self {
+    pub fn new(path : &str, conn : PooledConn, world_id : String) -> Self {
         Game {
-            world: world::World::new(),
+            world: world::World::new(conn, world_id),
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
             pending_reqs: Arc::new(Mutex::new(Vec::new())),
+            raws : RawTree::new(path)
         }
     }
     pub fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}
@@ -50,7 +55,7 @@ impl Game {
                 }
                 drop(gmw1);
                 let gmr1 = gm.read().unwrap();
-                let evs = gmr1.world.process(&gmr1.generators);
+                let evs = gmr1.world.process(&gmr1.generators, Arc::new(context::Context { raws : &gmr1.raws}));
                 drop(gmr1);
                 let mut gmw2 = gm.write().unwrap();
                 gmw2.event_collector.add_events(evs);

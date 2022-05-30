@@ -3,7 +3,6 @@
 #![feature(nll)]
 #![allow(unused)]
 #![deny(warnings)]
-#![forbid(unsafe_code)]
 use clap::Parser;
 use component::ComponentDataType;
 use serde_json::Value;
@@ -21,13 +20,17 @@ mod mass;
 mod pos;
 mod positioner;
 mod server;
+mod context;
 mod world;
+mod resource;
+mod block_type;
+mod chunk;
 mod raws;
 use crate::{entity::EntityBuilder, world::World};
 use std::time::Duration;
 fn main() {
     let t  = raws::RawTree::new("./raws");
-    println!("{}",t.search(&vec!["mmo".to_owned(), "null".to_owned()]).unwrap().dat().get("path").unwrap().as_str().unwrap());
+    println!("{}",t.search(&vec!["one".to_owned(), "poo".to_owned()]).unwrap().dat().get("path").unwrap().as_str().unwrap());
     let args = args::Args::parse();
     let mut server = server::Server::new(&args);
     server.run_game();

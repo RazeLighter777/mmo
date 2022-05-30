@@ -8,7 +8,7 @@ pub struct Args {
     pub ip: String,
     #[clap(
         long,
-        default_value = "skelet.prizrak.me",
+        default_value = "localhost",
         help = "host to connect to for database (mysql)"
     )]
     pub database_host: String,

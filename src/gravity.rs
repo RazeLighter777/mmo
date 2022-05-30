@@ -14,11 +14,11 @@ impl generator::Generator for Gravity {
     fn update(&mut self) {}
     fn generate(
         &self,
-        world: Arc<Mutex<&world::World>>,
+        world: Arc<&world::World>,
         ents: &Vec<entity::EntityId>,
     ) -> Vec<Box<dyn game_event::GameEventInterface>> {
         for e in ents {
-            let w = world.lock().unwrap();
+            let w = world.clone();
             println!(
                 "gravity : {}",
                 w.get_entity_by_id(*e)

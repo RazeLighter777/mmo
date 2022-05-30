@@ -5,7 +5,7 @@ use std::fs;
 
 
 
-
+#[derive(Debug)]
 pub struct RawTree {
     level : HashMap<String,Raw>,
     subtrees : HashMap<String,RawTree>
@@ -25,6 +25,7 @@ impl RawTree {
                     for s in path_string {
                         compiled_path_string.push(s.to_owned());
                     }
+                    println!("compiled path string {:?}", compiled_path_string);
                     result.insert(Raw::new(compiled_path_string.clone(), m), &compiled_path_string);
                 }
                 Err(_) => {
@@ -40,17 +41,18 @@ impl RawTree {
             self.level.insert(path_remaining[0].clone(), raw);
         } else {
             let mut t = RawTree { level: HashMap::new(), subtrees:  HashMap::new() };
-            t.insert(raw, &path_remaining[0..path_remaining.len()-1]);
-            self.subtrees.insert(path_remaining[path_remaining.len() - 1].clone(), t);
+            t.insert(raw, &path_remaining[1..path_remaining.len()]);
+            self.subtrees.insert(path_remaining[0].clone(), t);
         }
     }
     pub fn search(&self, path_remaining : &[String]) -> Option<&Raw> {
         if path_remaining.len() == 1 {
             return self.level.get(&path_remaining[0])
         } else {
+            println!("{:?} 3 {:?}", &path_remaining[0], self.subtrees);
             match self.subtrees.get(&path_remaining[0]) {
                 Some(tree) => {
-                    return tree.search(&path_remaining[0..path_remaining.len()-1])
+                    return tree.search(&path_remaining[1..path_remaining.len()])
                 },
                 None => {
                     return None;
@@ -69,6 +71,7 @@ fn split_path(path : &str) -> Vec<String> {
     v
 }
 
+#[derive(Debug)]
 pub struct Raw {
     dat : Value,
     path : Vec<String>,

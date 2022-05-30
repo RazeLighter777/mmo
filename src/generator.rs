@@ -8,7 +8,7 @@ pub trait Generator: Sync + Send {
     fn update(&mut self) -> ();
     fn generate(
         &self,
-        world: Arc<Mutex<&world::World>>,
+        world: Arc<&world::World>,
         ents: &Vec<entity::EntityId>,
     ) -> Vec<Box<dyn game_event::GameEventInterface>>;
     fn request(&self) -> Vec<component::ComponentTypeId>;

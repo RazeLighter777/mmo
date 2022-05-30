@@ -116,8 +116,7 @@ impl Server {
             .expect("Error creating connection in database initialization");
         conn.query_drop(
             r"CREATE TABLE IF NOT EXISTS worlds (
-                world_id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
-                world_name TEXT)",
+                world_id TEXT PRIMARY KEY NOT NULL)",
         )
         .expect("Error creating world table");
         conn.query_drop(
@@ -130,12 +129,13 @@ impl Server {
         .expect("Error creating users table");
         conn.query_drop(
             r"CREATE TABLE IF NOT EXISTS chunks (
-                chunk_id BIGINT UNSIGNED PRIMARY KEY,
+                chunk_id BIGINT UNSIGNED,
                 world_id INT NOT NULL,
                 chunk_dat BLOB,
                 loaded BOOLEAN,
                 FOREIGN KEY (world_id)
-                    REFERENCES worlds(world_id))",
+                    REFERENCES worlds(world_id)),
+                PRIMARY KEY (chunk_id,world_id)",
         )
         .expect("Error creating chunks table");
         conn.query_drop(
@@ -291,7 +291,7 @@ impl Server {
         }
     }
     pub fn create_world(&mut self, world_name: &str) {
-        let g = game::Game::new();
+        let g = game::Game::new("./raws", self.get_conn().unwrap(), world_name.to_owned());
         let gmrwlock = Arc::new(RwLock::new(g));
         let gmrwlock2 = gmrwlock.clone();
         game::Game::start_game(gmrwlock);

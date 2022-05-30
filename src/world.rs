@@ -6,14 +6,20 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 use std::thread::JoinHandle;
 
-use crate::component;
+use crate::{component, game};
 use crate::entity;
 use crate::game_event;
+use crate::context;
 use crate::generator;
+use crate::chunk::{self, Chunk};
 use log::{info, trace, warn};
+use mysql::PooledConn;
 
 pub struct World {
     entities: HashMap<entity::EntityId, entity::Entity>,
+    chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
+    conn : PooledConn,
+    world_id : String,
 }
 
 struct EntityFilterTree<'a> {
@@ -66,14 +72,21 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new() -> Self {
+    pub fn new(conn : PooledConn, world_name : String) -> Self {
         Self {
             entities: HashMap::new(),
+            chunks : HashMap::new(),
+            conn : conn,
+            world_id : world_name
         }
+    }
+    fn load_chunk(&self, chunk_id : chunk::ChunkId) -> chunk::Chunk {
+        todo!()
     }
     pub fn process(
         &self,
         gens: &Vec<Box<dyn generator::Generator>>,
+        context : Arc<context::Context>
     ) -> Vec<Box<dyn game_event::GameEventInterface>> {
         let mut res: Vec<Box<dyn game_event::GameEventInterface>> = Vec::new();
         let aresult: Arc<RwLock<&mut Vec<Box<dyn game_event::GameEventInterface>>>> =
@@ -85,7 +98,7 @@ impl World {
                 requests.sort();
                 tree.only_list(&requests);
             }
-            let aworld = Arc::new(Mutex::new(self));
+            let aworld = Arc::new(self);
             for g in gens {
                 let mut q = g.request();
                 q.sort();
