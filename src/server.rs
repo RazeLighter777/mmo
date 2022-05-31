@@ -6,15 +6,19 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{info, warn};
-use mysql::params;
-use mysql::prelude::Queryable;
-use mysql::Error;
-use mysql::Opts;
-use mysql::Pool;
+use async_std::task;
+
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
+use sqlx::Acquire;
+use sqlx::MySql;
+use sqlx::Pool;
+use sqlx::Row;
+use sqlx::mysql::MySqlPoolOptions;
+use sqlx::mysql::MySqlRow;
+use sqlx::pool::PoolConnection;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
@@ -26,7 +30,7 @@ use std::sync::RwLock;
 
 pub struct Server {
     dburl: String,
-    pool: Pool,
+    pool: Pool<MySql>,
     game: HashMap<String, Arc<RwLock<game::Game>>>,
     key: String,
     listen_url: String,
@@ -110,47 +114,40 @@ pub struct User {
     pub user_pass: String,
 }
 impl Server {
-    fn initialize_database(&self) {
-        let mut conn = self
-            .get_conn()
-            .expect("Error creating connection in database initialization");
-        conn.query_drop(
+    async fn initialize_database(&self) {
+        sqlx::query(
             r"CREATE TABLE IF NOT EXISTS worlds (
-                world_id TEXT PRIMARY KEY NOT NULL)",
-        )
-        .expect("Error creating world table");
-        conn.query_drop(
+                world_id VARCHAR(50) PRIMARY KEY NOT NULL)",
+            ).execute(&self.pool).await.unwrap();
+        sqlx::query(
             r"CREATE TABLE IF NOT EXISTS users (
                 user_id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
                 user_name TEXT,
                 password_hash TEXT,
                 admin BOOLEAN)",
-        )
-        .expect("Error creating users table");
-        conn.query_drop(
+        ).execute(&self.pool).await.unwrap();
+        sqlx::query(
             r"CREATE TABLE IF NOT EXISTS chunks (
                 chunk_id BIGINT UNSIGNED,
-                world_id INT NOT NULL,
+                world_id VARCHAR(50)  NOT NULL,
                 chunk_dat BLOB,
                 loaded BOOLEAN,
                 FOREIGN KEY (world_id)
-                    REFERENCES worlds(world_id)),
-                PRIMARY KEY (chunk_id,world_id)",
-        )
-        .expect("Error creating chunks table");
-        conn.query_drop(
+                    REFERENCES worlds(world_id),
+                PRIMARY KEY (chunk_id,world_id))",
+        ).execute(&self.pool).await.unwrap();
+        sqlx::query(
             r"CREATE TABLE IF NOT EXISTS entities (
                 entity_id BIGINT UNSIGNED PRIMARY KEY,
                 chunk_id BIGINT UNSIGNED,
-                world_id INT NOT NULL,
+                world_id VARCHAR(50) NOT NULL,
                 FOREIGN KEY(chunk_id) 
                     REFERENCES chunks(chunk_id),
                 FOREIGN KEY(world_id)
                     REFERENCES worlds(world_id)
                 )",
-        )
-        .expect("Error creating entities table");
-        conn.query_drop(
+        ).execute(&self.pool).await.unwrap();
+        sqlx::query(
             r"CREATE TABLE IF NOT EXISTS components (
                 component_id BIGINT UNSIGNED PRIMARY KEY,
                 type_id BIGINT UNSIGNED,
@@ -158,31 +155,25 @@ impl Server {
                 entity_id BIGINT UNSIGNED, 
                 FOREIGN KEY(entity_id) 
                     REFERENCES entities(entity_id))",
-        )
-        .expect("Error creating components table");
+        ).execute(&self.pool).await.unwrap();
+        
     }
-    pub fn create_user(&self, username: &str, password: &str, is_admin : bool) -> bool {
-        let mut conn = self.get_conn().expect("Could not get conn to create user");
+    pub async fn create_user(&self, username: &str, password: &str, is_admin : bool) -> bool {
         let pass = bcrypt::hash_with_result(password, 6).expect("Could not hash password");
-        if !self.user_exists(username) {
-            conn.exec_drop(
-                "INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, ?)",
-                (username, pass.to_string(), is_admin),
-            )
-            .expect("Could not insert user");
+        if !self.user_exists(username).await {
+            sqlx::query(
+                "INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, ?)"
+            ).bind(username).bind(pass.to_string()).bind(is_admin).execute(&self.pool).await.unwrap();
             return true;
         }
         false
     }
-    pub fn user_exists(&self, username: &str) -> bool {
-        let mut conn = self.get_conn().expect("Could not get conn to create user");
-        let res: Option<bool> = conn
-            .exec_first(
-                "SELECT admin FROM users WHERE user_name = :username",
-                params! { "username" => username },
-            )
-            .expect("Error selecting user");
-        res.is_some()
+    pub async fn user_exists(&self, username: &str) -> bool {
+        let x = sqlx::query(
+            "SELECT admin FROM users WHERE user_name = ?"
+        ).bind(username).fetch_one(&self.pool).await;
+        let res = !x.is_err();
+        res
     }
     pub fn get_claims(&self, session : &str) -> Option<ServerClaims> {
         let token = decode::<ServerClaims>(session, &DecodingKey::from_secret(self.key.as_ref()), &Validation::default());
@@ -196,16 +187,22 @@ impl Server {
             }
         }
     }
-    pub fn generate_session(&self, username: &str, password: &str) -> Option<String> {
-        let mut conn = self
-            .get_conn()
-            .expect("Could not get conn to verify session");
-        let user : Option<(String,bool)> = conn
-            .exec_first(
-                "SELECT password_hash, admin FROM users WHERE user_name = :username",
-                params! {"username" => username},  
-            )
-            .expect("Could not execute query to verify session");
+    pub async  fn generate_session(&self, username: &str, password: &str) -> Option<String> {
+        let mut user : Option<(String, bool)> = None;
+        let row = sqlx::query(
+                "SELECT password_hash, admin FROM users WHERE user_name = ?"
+            ).bind(username).fetch_optional(&self.pool).await.unwrap();
+        match row {
+            Some(r) => {
+                let u : &str = r.try_get("password_hash").unwrap();
+                let admin : bool = r.try_get("admin").unwrap();
+                user = Some((u.to_owned(),admin));
+                println!("get");
+            },
+            None =>{
+                println!("got");
+            },
+        }
         match user {
             Some((u,is_admin)) => match bcrypt::verify(password, &u) {
                 Ok(b) => {
@@ -238,12 +235,12 @@ impl Server {
         }
         None
     }
-    fn listen_thread(listener: TcpListener, sv: Arc<RwLock<Self>>) {
+    async fn listen_thread(listener: TcpListener, sv: Arc<RwLock<Self>>) {
         loop {
             for (mut conn, addr) in listener.accept() {
                 //spawn a worker thread
                 let svnew = sv.clone();
-                std::thread::spawn(move || {
+                task::spawn(async move {
                     let mut buf = &mut [0; 1024];
                     conn.read(buf);
                     match std::str::from_utf8(buf) {
@@ -252,8 +249,8 @@ impl Server {
                             {
                                 Ok(buf) => match ServerRequest::new(buf) {
                                     Ok((rx, req)) => {
-                                        Self::worker_thread(req, svnew);
-                                        match rx.recv_timeout(std::time::Duration::from_secs(1)) {
+                                        let t = task::spawn(async move { task::block_on(async move {Self::worker_thread(req, svnew).await })});
+                                        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
                                             Ok(dat) => {
                                                 conn.write(
                                                     serde_json::to_string(&dat.dat)
@@ -291,7 +288,7 @@ impl Server {
         }
     }
     pub fn create_world(&mut self, world_name: &str) {
-        let g = game::Game::new("./raws", self.get_conn().unwrap(), world_name.to_owned());
+        let g = game::Game::new("./raws", self.pool.clone(), world_name.to_owned());
         let gmrwlock = Arc::new(RwLock::new(g));
         let gmrwlock2 = gmrwlock.clone();
         game::Game::start_game(gmrwlock);
@@ -314,7 +311,7 @@ impl Server {
             }
         }
     }
-    fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
+    async fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
         match &request.dat {
             ServerRequestType::CreateGame { world_name } => {
                 let guard0 = sv.read().unwrap();
@@ -329,7 +326,8 @@ impl Server {
             }
             ServerRequestType::Login { user, password } => {
                 let guard = sv.read().unwrap();
-                match guard.generate_session(&user, &password) {
+                let x= guard.generate_session(&user, &password).await;
+                match x {
                     Some(token) => {
                         request.handle(ServerResponse::new(ServerResponseType::AuthSuccess {
                             session_token: token,
@@ -360,7 +358,7 @@ impl Server {
             }
         }
     }
-    pub fn new(args: &args::Args) -> Server {
+    pub async fn new(args: &args::Args) -> Server {
         let (tx, rx) = crossbeam_channel::unbounded::<ServerRequest>();
 
         let key = args.secret.clone();
@@ -369,8 +367,9 @@ impl Server {
             args.database_user, args.database_pass, args.database_host, args.database_name
         );
         println!("Connecting to database at {}", args.database_host);
-        let ops = Opts::from_url(&dburl).expect("Database URL invalid");
-        let pool = Pool::new(ops).expect("Could not establish database connection");
+        let pool = MySqlPoolOptions::new()
+        .max_connections(5)
+        .connect(&dburl).await.expect("Could not get db conn");
         println!("Connection establised");
         Self {
             dburl: dburl,
@@ -381,23 +380,22 @@ impl Server {
         }
     }
     pub fn handle(&mut self, sr: &ServerRequest) {}
-    pub fn get_conn(&self) -> Result<mysql::PooledConn, mysql::Error> {
-        self.pool.get_conn()
+    pub fn get_conn(&self)-> Result<PoolConnection<MySql>,sqlx::Error> {
+        task::block_on(async {
+            self.pool.acquire().await
+        })
     }
-    pub fn run_game(self) {
-        self.initialize_database();
-        if !self.user_exists("admin") {
+    pub async fn run_game(self) {
+        self.initialize_database().await;
+        if !self.user_exists("admin").await {
             println!("Creating user admin with default password \"password\"");
-            self.create_user("admin", "password", true); 
+            self.create_user("admin", "password", true).await; 
         }
         let listener = TcpListener::bind(&self.listen_url).expect("Could not bind to ip/port");
         //create server arc
         let sv = Arc::new(RwLock::new(self));
         //create server listen thread
-        std::thread::spawn(move || {
-            Self::listen_thread(listener, sv.clone());
-        });
-        loop {}
+        Self::listen_thread(listener, sv.clone()).await;
     }
 }
 

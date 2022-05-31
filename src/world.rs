@@ -13,12 +13,12 @@ use crate::context;
 use crate::generator;
 use crate::chunk::{self, Chunk};
 use log::{info, trace, warn};
-use mysql::PooledConn;
+use sqlx::{Pool, MySql};
 
 pub struct World {
     entities: HashMap<entity::EntityId, entity::Entity>,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
-    conn : PooledConn,
+    conn : Pool<MySql>,
     world_id : String,
 }
 
@@ -72,7 +72,7 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new(conn : PooledConn, world_name : String) -> Self {
+    pub fn new(conn : Pool<MySql>, world_name : String) -> Self {
         Self {
             entities: HashMap::new(),
             chunks : HashMap::new(),

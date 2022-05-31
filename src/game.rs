@@ -3,8 +3,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
-use mysql::PooledConn;
 use serde_json::json;
+use sqlx::MySql;
+use sqlx::Pool;
 
 use crate::context;
 use crate::event_collector;
@@ -22,18 +23,20 @@ pub struct Game {
     handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
     pending_reqs: Arc<Mutex<Vec<ServerRequest>>>,
+    conn : Pool<MySql>,
     raws : RawTree
 }
 
 impl Game {
-    pub fn new(path : &str, conn : PooledConn, world_id : String) -> Self {
+    pub fn new(path : &str, conn : Pool<MySql>, world_id : String) -> Self {
         Game {
-            world: world::World::new(conn, world_id),
+            world: world::World::new(conn.clone(), world_id),
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
             pending_reqs: Arc::new(Mutex::new(Vec::new())),
-            raws : RawTree::new(path)
+            raws : RawTree::new(path),
+            conn : conn
         }
     }
     pub fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}

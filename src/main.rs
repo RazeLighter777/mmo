@@ -28,10 +28,11 @@ mod chunk;
 mod raws;
 use crate::{entity::EntityBuilder, world::World};
 use std::time::Duration;
-fn main() {
+#[async_std::main]
+async fn main() {
     let t  = raws::RawTree::new("./raws");
     println!("{}",t.search(&vec!["one".to_owned(), "poo".to_owned()]).unwrap().dat().get("path").unwrap().as_str().unwrap());
     let args = args::Args::parse();
-    let mut server = server::Server::new(&args);
-    server.run_game();
+    let mut server = server::Server::new(&args).await;
+    server.run_game().await;
 }
