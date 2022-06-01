@@ -13,7 +13,7 @@ use crate::context;
 use crate::generator;
 use crate::chunk::{self, Chunk};
 use log::{info, trace, warn};
-use sqlx::{Pool, MySql};
+use sqlx::{Pool, MySql, Row};
 
 pub struct World {
     entities: HashMap<entity::EntityId, entity::Entity>,
@@ -80,9 +80,30 @@ impl World {
             world_id : world_name
         }
     }
-    fn load_chunk(&self, chunk_id : chunk::ChunkId) -> chunk::Chunk {
+    async fn load_chunk(&self, chunk_id : chunk::ChunkId) -> Option<chunk::Chunk> {
+        let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
+        .bind(chunk_id)
+        .bind(&self.world_id)
+        .fetch_optional(&self.conn).await.expect("error querying database for chunk");
+        match r {
+            Some(row) => {
+                let c = Chunk::new(row.try_get("dat").expect("chunk format in database invalid"));
+                return match c {
+                    Ok(chunk) => {
+                        Some(chunk)
+                    },
+                    Err(_) => {
+                        None
+                    },
+                }
+            },
+            None => {
+                return None;
+            },
+        }
         todo!()
     }
+    
     pub fn process(
         &self,
         gens: &Vec<Box<dyn generator::Generator>>,

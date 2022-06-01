@@ -1,9 +1,11 @@
 use crate::args;
 use crate::game;
+use async_std::prelude::FutureExt;
 use bcrypt::bcrypt;
 use crossbeam_channel::internal::SelectHandle;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
+use jsonwebtoken::TokenData;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{info, warn};
 use async_std::task;
@@ -58,13 +60,14 @@ pub struct ServerRequest {
     dat: ServerRequestType,
     world : Option<String>, 
     session_token : Option<String>,
+    claims : Option<TokenData<ServerClaims>>,
 }
 
 impl ServerRequest {
     pub fn handle(&self, response: ServerResponse) {
         self.sn.send(response);
     }
-    pub fn new(dat: Value) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
+    pub fn new(dat: Value, secret_key : &str) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
         let op : Option<String> = match dat.get("world") {
             Some(val) => {
                 val.as_str().map(Into::into)
@@ -76,11 +79,25 @@ impl ServerRequest {
 
         let session_token : Option<String> = match dat.get("session_token") {
             Some(val) => {
-                val.as_str().map(Into::into)
+                let s = val.as_str().map(Into::into);
+                s
             },
             None => {
                 None
             },
+        };
+        let claims = match &session_token {
+            Some(s) => {  
+                match decode::<ServerClaims>(&s, &DecodingKey::from_secret(secret_key.as_bytes()), &Validation::default()) {
+                    Ok(claims) => {
+                        Some(claims)
+                    },
+                    Err(_) => {
+                        None
+                    }
+                }
+            },
+            None => None,
         };
         let (tx, rx) = crossbeam_channel::unbounded();
         Ok((
@@ -89,9 +106,30 @@ impl ServerRequest {
                 sn: tx,
                 dat: serde_json::from_value(dat)?,
                 world : op,
-                session_token : session_token
+                session_token : session_token,
+                claims : claims
             },
         ))
+    }
+    pub fn get_user(&self) -> Option<&str> {
+        match &self.claims {
+            Some(claims) => {
+                Some(&claims.claims.user_name)
+            },
+            None => {
+                None
+            },
+        }
+    }
+    pub fn is_admin(&self) -> bool {
+        match &self.claims {
+            Some(claims) => {
+                claims.claims.is_admin
+            },
+            None => {
+                false
+            },
+        }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -236,10 +274,14 @@ impl Server {
         None
     }
     async fn listen_thread(listener: TcpListener, sv: Arc<RwLock<Self>>) {
+        let lk = sv.read().unwrap();
+        let key = lk.key.clone();
+        drop(lk);
         loop {
             for (mut conn, addr) in listener.accept() {
                 //spawn a worker thread
                 let svnew = sv.clone();
+                let key  =key.clone();
                 task::spawn(async move {
                     let mut buf = &mut [0; 1024];
                     conn.read(buf);
@@ -247,9 +289,10 @@ impl Server {
                         Ok(buf) => {
                             match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))
                             {
-                                Ok(buf) => match ServerRequest::new(buf) {
+                                Ok(buf) => match ServerRequest::new(buf,key.as_str()) {
                                     Ok((rx, req)) => {
-                                        let t = task::spawn(async move { task::block_on(async move {Self::worker_thread(req, svnew).await })});
+                                        let t = std::thread::spawn(move ||  { task::block_on(async move {Self::worker_thread(req, svnew).await })}); 
+                                        drop(t);
                                         match rx.recv_timeout(std::time::Duration::from_secs(10)) {
                                             Ok(dat) => {
                                                 conn.write(
@@ -258,7 +301,7 @@ impl Server {
                                                         .as_bytes(),
                                                 );
                                             }
-                                            Err(_) => {
+                                            Err(e) => {
                                                 conn.write(
                                                     serde_json::to_string(
                                                         &ServerResponseType::TimedOut {},
@@ -294,29 +337,10 @@ impl Server {
         game::Game::start_game(gmrwlock);
         self.game.insert(String::from(world_name), gmrwlock2);
     }
-    fn is_request_admin(&self, request: &ServerRequest) -> bool {
-        match &request.session_token {
-            Some(token) => {
-                match self.get_claims(token) {
-                    Some(claim) => {
-                        claim.is_admin
-                    }
-                    None => {
-                        false
-                    }
-                }
-            }
-            None => {
-                false 
-            }
-        }
-    }
     async fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
         match &request.dat {
             ServerRequestType::CreateGame { world_name } => {
-                let guard0 = sv.read().unwrap();
-                if guard0.is_request_admin(&request) {
-                    drop(guard0);
+                if request.is_admin() {
                     let mut guard = sv.write().unwrap();
                     guard.create_world(&world_name);
                     request.handle(ServerResponse::new(ServerResponseType::Ok {}));
@@ -378,12 +402,6 @@ impl Server {
             game: HashMap::new(),
             key: key,
         }
-    }
-    pub fn handle(&mut self, sr: &ServerRequest) {}
-    pub fn get_conn(&self)-> Result<PoolConnection<MySql>,sqlx::Error> {
-        task::block_on(async {
-            self.pool.acquire().await
-        })
     }
     pub async fn run_game(self) {
         self.initialize_database().await;

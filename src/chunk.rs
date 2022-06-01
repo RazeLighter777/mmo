@@ -17,6 +17,12 @@ pub struct Chunk {
     entity_position_cache : HashSet<entity::EntityId>
 }
 
+pub struct LocationAttributes {
+    temperature : f32,
+    altitude : f32,
+    humidity : f32
+}
+
 impl Chunk {
     pub fn new(dat : &[u8]) -> Result<Chunk,serde_cbor::Error> {
         let res = serde_cbor::from_slice(dat)?;

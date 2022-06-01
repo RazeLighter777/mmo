@@ -22,7 +22,6 @@ pub struct Game {
     generators: Vec<Box<dyn generator::Generator>>,
     handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
-    pending_reqs: Arc<Mutex<Vec<ServerRequest>>>,
     conn : Pool<MySql>,
     raws : RawTree
 }
@@ -34,12 +33,11 @@ impl Game {
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
-            pending_reqs: Arc::new(Mutex::new(Vec::new())),
             raws : RawTree::new(path),
             conn : conn
         }
     }
-    pub fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}
+    pub async fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}
     pub fn add_generator(&mut self, generator: Box<dyn generator::Generator>) {
         self.generators.push(generator);
     }
@@ -70,15 +68,5 @@ impl Game {
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
         });
-    }
-    fn handle_queued_requests(&mut self) {
-        let mut pgl = self.pending_reqs.lock();
-        let mut pr = pgl.unwrap();
-        for i in pr.iter_mut() {
-            i.handle(server::ServerResponse::new(
-                server::ServerResponseType::Ok {},
-            ));
-        }
-        pr.clear();
     }
 }
