@@ -1,34 +1,42 @@
 use std::{
     collections::HashMap,
-    hash::{BuildHasher, Hasher},
+    hash::{BuildHasher, Hasher}, sync::Arc,
 };
 
-use crate::component::{self, ComponentDataType};
+use crate::{component::{self, ComponentDataType}, context, registry::Registry};
 use crate::world::World;
 pub type EntityId = u64;
 pub struct Entity {
     iid: EntityId,
     components:
-        HashMap<component::ComponentTypeId, Box<dyn component::ComponentInterface + Send + Sync>>,
+        HashMap<component::ComponentTypeId, Box<dyn component::ComponentInterface>>,
 }
-pub struct EntityBuilder {
+pub struct EntityBuilder<'a> {
     e: Entity,
+    context : Arc<context::Context<'a>>,
 }
-impl EntityBuilder {
-    pub fn new() -> Self {
+impl<'a> EntityBuilder<'a> {
+    pub fn new_with_id(id  :  EntityId, ct : Arc<context::Context<'a>>) -> EntityBuilder<'a> {
         let e = Entity {
-            iid: std::collections::hash_map::RandomState::new()
-                .build_hasher()
-                .finish(),
+            iid: id,
             components: HashMap::new(),
         };
-        Self { e: e }
+        Self { e, context : ct }
+    }
+    pub fn new(registry : &Registry, context : Arc<context::Context<'a>>) -> EntityBuilder<'a> {
+        Self::new_with_id(std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish(), context)
     }
     pub fn add<T: component::ComponentDataType + 'static + Send + Sync>(mut self, data: T) -> Self {
         self.e.components.insert(
             component::get_type_id::<T>(),
-            Box::new(component::Component::new(data, self.e.iid)),
+            Box::new(component::Component::new(data, self.e.iid,self.context.clone())),
         );
+        self
+    }
+    pub fn add_existing(mut self, component : Box<dyn component::ComponentInterface>) -> Self {
+        self.e.components.insert(component.get_type_id(), component);
         self
     }
     pub fn build(self) -> Entity {
@@ -61,12 +69,12 @@ impl Entity {
     pub fn get_by_id(
         &self,
         tid: component::ComponentTypeId,
-    ) -> Option<&Box<dyn component::ComponentInterface + Send + Sync>> {
+    ) -> Option<&Box<dyn component::ComponentInterface>> {
         self.components.get(&tid)
     }
     pub fn get_all(
         &self,
-    ) -> &HashMap<component::ComponentTypeId, Box<dyn component::ComponentInterface + Send + Sync>>
+    ) -> &HashMap<component::ComponentTypeId, Box<dyn component::ComponentInterface>>
     {
         &self.components
     }

@@ -7,7 +7,7 @@ use std::sync::RwLock;
 use std::thread::JoinHandle;
 
 use crate::chunk::{self, Chunk};
-use crate::context;
+use crate::{context, registry, raws, pos};
 use crate::entity;
 use crate::game_event;
 use crate::generator;
@@ -20,6 +20,8 @@ pub struct World {
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     conn: Pool<MySql>,
     world_id: String,
+    registry: registry::Registry,
+    raws : raws::RawTree
 }
 
 struct EntityFilterTree<'a> {
@@ -72,13 +74,28 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new(conn: Pool<MySql>, world_name: String) -> Self {
+    pub fn new(conn: Pool<MySql>, world_name: String, raws : raws::RawTree) -> Self {
         Self {
             entities: HashMap::new(),
             chunks: HashMap::new(),
             conn: conn,
             world_id: world_name,
+            registry: registry::RegistryBuilder::new()
+            .load_block_raws(&["block".to_owned()], &raws)
+            .with_component::<pos::Pos>()
+            .build(),
+            raws : raws,
         }
+    }
+    async fn load_entity(&self, entity_id : entity::EntityId) -> Option<&entity::Entity> {
+        let r = sqlx::query("SELECT dat, type_id FROM components JOIN entities ON components.entity_id = entities.entity_id WHERE components.entity_id = ?")
+        .bind(entity_id)
+        .fetch_all(&self.conn).await.expect("Error in database when loading entity");
+        let mut eb = entity::EntityBuilder::new_with_id(entity_id, Arc::new(context::Context { registry : &self.registry, raws : &self.raws}));
+        for row in r {
+            //let eb = eb.add_existing(self.registry.generate_component(dat, entity_id, type_id))
+        }
+        todo!()
     }
     async fn load_chunk(&self, chunk_id: chunk::ChunkId) -> Option<chunk::Chunk> {
         let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
@@ -107,8 +124,7 @@ impl World {
 
     pub fn process(
         &self,
-        gens: &Vec<Box<dyn generator::Generator>>,
-        context: Arc<context::Context>,
+        gens: &Vec<Box<dyn generator::Generator>>
     ) -> Vec<Box<dyn game_event::GameEventInterface>> {
         let mut res: Vec<Box<dyn game_event::GameEventInterface>> = Vec::new();
         let aresult: Arc<RwLock<&mut Vec<Box<dyn game_event::GameEventInterface>>>> =

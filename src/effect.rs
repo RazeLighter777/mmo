@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone,Debug)]
 pub enum Effect {
     Poison = 0,
     Fire = 1,

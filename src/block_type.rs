@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{raws::Raw, resource};
 use crate::effect;
-pub type BlockTypeId = u16;
-#[derive(Deserialize, Clone)]
+pub type BlockTypeId = u64;
+#[derive(Deserialize, Clone,Debug)]
 #[repr(u8)]
 pub enum BlockLayer {
     Ground = 0,
@@ -15,11 +15,10 @@ pub enum BlockLayer {
     ) = 5
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize,Debug)]
 pub struct BlockType {
     canonical_name: String,
     descriptive_name: String,
-    raw_path: String,
     layer: BlockLayer,
 }
 
@@ -33,9 +32,6 @@ impl BlockType {
     }
     pub fn get_descriptive_name(&self) -> &str {
         &self.descriptive_name
-    }
-    pub fn get_raw_path(&self) -> &str {
-        &self.raw_path
     }
     pub fn get_layer(&self) -> BlockLayer {
         self.layer.clone()
