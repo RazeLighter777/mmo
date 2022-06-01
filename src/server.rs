@@ -1,6 +1,7 @@
 use crate::args;
 use crate::game;
 use async_std::prelude::FutureExt;
+use async_std::task;
 use bcrypt::bcrypt;
 use crossbeam_channel::internal::SelectHandle;
 use crossbeam_channel::Receiver;
@@ -8,19 +9,18 @@ use crossbeam_channel::Sender;
 use jsonwebtoken::TokenData;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{info, warn};
-use async_std::task;
 
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
+use sqlx::mysql::MySqlPoolOptions;
+use sqlx::mysql::MySqlRow;
+use sqlx::pool::PoolConnection;
 use sqlx::Acquire;
 use sqlx::MySql;
 use sqlx::Pool;
 use sqlx::Row;
-use sqlx::mysql::MySqlPoolOptions;
-use sqlx::mysql::MySqlRow;
-use sqlx::pool::PoolConnection;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
@@ -53,50 +53,47 @@ pub enum ServerResponseType {
     Ok {},
     AuthFailure {},
     TimedOut {},
-    PermissionDenied {}
+    PermissionDenied {},
 }
 pub struct ServerRequest {
     sn: Sender<ServerResponse>,
     dat: ServerRequestType,
-    world : Option<String>, 
-    session_token : Option<String>,
-    claims : Option<TokenData<ServerClaims>>,
+    world: Option<String>,
+    session_token: Option<String>,
+    claims: Option<TokenData<ServerClaims>>,
 }
 
 impl ServerRequest {
     pub fn handle(&self, response: ServerResponse) {
         self.sn.send(response);
     }
-    pub fn new(dat: Value, secret_key : &str) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
-        let op : Option<String> = match dat.get("world") {
-            Some(val) => {
-                val.as_str().map(Into::into)
-            },
-            None => {
-                None
-            },
+    pub fn new(
+        dat: Value,
+        secret_key: &str,
+    ) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
+        let op: Option<String> = match dat.get("world") {
+            Some(val) => val.as_str().map(Into::into),
+            None => None,
         };
 
-        let session_token : Option<String> = match dat.get("session_token") {
+        let session_token: Option<String> = match dat.get("session_token") {
             Some(val) => {
                 let s = val.as_str().map(Into::into);
                 s
-            },
-            None => {
-                None
-            },
+            }
+            None => None,
         };
         let claims = match &session_token {
-            Some(s) => {  
-                match decode::<ServerClaims>(&s, &DecodingKey::from_secret(secret_key.as_bytes()), &Validation::default()) {
-                    Ok(claims) => {
-                        Some(claims)
-                    },
-                    Err(_) => {
-                        None
-                    }
+            Some(s) => {
+                match decode::<ServerClaims>(
+                    &s,
+                    &DecodingKey::from_secret(secret_key.as_bytes()),
+                    &Validation::default(),
+                ) {
+                    Ok(claims) => Some(claims),
+                    Err(_) => None,
                 }
-            },
+            }
             None => None,
         };
         let (tx, rx) = crossbeam_channel::unbounded();
@@ -105,38 +102,30 @@ impl ServerRequest {
             Self {
                 sn: tx,
                 dat: serde_json::from_value(dat)?,
-                world : op,
-                session_token : session_token,
-                claims : claims
+                world: op,
+                session_token: session_token,
+                claims: claims,
             },
         ))
     }
     pub fn get_user(&self) -> Option<&str> {
         match &self.claims {
-            Some(claims) => {
-                Some(&claims.claims.user_name)
-            },
-            None => {
-                None
-            },
+            Some(claims) => Some(&claims.claims.user_name),
+            None => None,
         }
     }
     pub fn is_admin(&self) -> bool {
         match &self.claims {
-            Some(claims) => {
-                claims.claims.is_admin
-            },
-            None => {
-                false
-            },
+            Some(claims) => claims.claims.is_admin,
+            None => false,
         }
     }
 }
 #[derive(Serialize, Deserialize)]
 pub struct ServerClaims {
     pub user_name: String,
-    pub is_admin : bool,
-    pub exp : usize
+    pub is_admin: bool,
+    pub exp: usize,
 }
 pub struct ServerResponse {
     dat: ServerResponseType,
@@ -156,14 +145,20 @@ impl Server {
         sqlx::query(
             r"CREATE TABLE IF NOT EXISTS worlds (
                 world_id VARCHAR(50) PRIMARY KEY NOT NULL)",
-            ).execute(&self.pool).await.unwrap();
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
         sqlx::query(
             r"CREATE TABLE IF NOT EXISTS users (
                 user_id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
                 user_name TEXT,
                 password_hash TEXT,
                 admin BOOLEAN)",
-        ).execute(&self.pool).await.unwrap();
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
         sqlx::query(
             r"CREATE TABLE IF NOT EXISTS chunks (
                 chunk_id BIGINT UNSIGNED,
@@ -173,7 +168,10 @@ impl Server {
                 FOREIGN KEY (world_id)
                     REFERENCES worlds(world_id),
                 PRIMARY KEY (chunk_id,world_id))",
-        ).execute(&self.pool).await.unwrap();
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
         sqlx::query(
             r"CREATE TABLE IF NOT EXISTS entities (
                 entity_id BIGINT UNSIGNED PRIMARY KEY,
@@ -184,7 +182,10 @@ impl Server {
                 FOREIGN KEY(world_id)
                     REFERENCES worlds(world_id)
                 )",
-        ).execute(&self.pool).await.unwrap();
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
         sqlx::query(
             r"CREATE TABLE IF NOT EXISTS components (
                 component_id BIGINT UNSIGNED PRIMARY KEY,
@@ -193,62 +194,73 @@ impl Server {
                 entity_id BIGINT UNSIGNED, 
                 FOREIGN KEY(entity_id) 
                     REFERENCES entities(entity_id))",
-        ).execute(&self.pool).await.unwrap();
-        
+        )
+        .execute(&self.pool)
+        .await
+        .unwrap();
     }
-    pub async fn create_user(&self, username: &str, password: &str, is_admin : bool) -> bool {
+    pub async fn create_user(&self, username: &str, password: &str, is_admin: bool) -> bool {
         let pass = bcrypt::hash_with_result(password, 6).expect("Could not hash password");
         if !self.user_exists(username).await {
-            sqlx::query(
-                "INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, ?)"
-            ).bind(username).bind(pass.to_string()).bind(is_admin).execute(&self.pool).await.unwrap();
+            sqlx::query("INSERT INTO users (user_name, password_hash, admin) VALUES (?,?, ?)")
+                .bind(username)
+                .bind(pass.to_string())
+                .bind(is_admin)
+                .execute(&self.pool)
+                .await
+                .unwrap();
             return true;
         }
         false
     }
     pub async fn user_exists(&self, username: &str) -> bool {
-        let x = sqlx::query(
-            "SELECT admin FROM users WHERE user_name = ?"
-        ).bind(username).fetch_one(&self.pool).await;
+        let x = sqlx::query("SELECT admin FROM users WHERE user_name = ?")
+            .bind(username)
+            .fetch_one(&self.pool)
+            .await;
         let res = !x.is_err();
         res
     }
-    pub fn get_claims(&self, session : &str) -> Option<ServerClaims> {
-        let token = decode::<ServerClaims>(session, &DecodingKey::from_secret(self.key.as_ref()), &Validation::default());
+    pub fn get_claims(&self, session: &str) -> Option<ServerClaims> {
+        let token = decode::<ServerClaims>(
+            session,
+            &DecodingKey::from_secret(self.key.as_ref()),
+            &Validation::default(),
+        );
         match token {
-            Ok(tok) => {
-                Some(tok.claims)
-            }
+            Ok(tok) => Some(tok.claims),
             Err(e) => {
-                println!("{}",e);
+                println!("{}", e);
                 None
             }
         }
     }
-    pub async  fn generate_session(&self, username: &str, password: &str) -> Option<String> {
-        let mut user : Option<(String, bool)> = None;
-        let row = sqlx::query(
-                "SELECT password_hash, admin FROM users WHERE user_name = ?"
-            ).bind(username).fetch_optional(&self.pool).await.unwrap();
+    pub async fn generate_session(&self, username: &str, password: &str) -> Option<String> {
+        let mut user: Option<(String, bool)> = None;
+        let row = sqlx::query("SELECT password_hash, admin FROM users WHERE user_name = ?")
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await
+            .unwrap();
         match row {
             Some(r) => {
-                let u : &str = r.try_get("password_hash").unwrap();
-                let admin : bool = r.try_get("admin").unwrap();
-                user = Some((u.to_owned(),admin));
+                let u: &str = r.try_get("password_hash").unwrap();
+                let admin: bool = r.try_get("admin").unwrap();
+                user = Some((u.to_owned(), admin));
                 println!("get");
-            },
-            None =>{
+            }
+            None => {
                 println!("got");
-            },
+            }
         }
         match user {
-            Some((u,is_admin)) => match bcrypt::verify(password, &u) {
+            Some((u, is_admin)) => match bcrypt::verify(password, &u) {
                 Ok(b) => {
                     if b {
                         let claims = ServerClaims {
                             user_name: String::from(username),
-                            is_admin : is_admin,
-                            exp: 10000000000
+                            is_admin: is_admin,
+                            exp: 10000000000,
                         };
                         match encode(
                             &Header::default(),
@@ -281,7 +293,7 @@ impl Server {
             for (mut conn, addr) in listener.accept() {
                 //spawn a worker thread
                 let svnew = sv.clone();
-                let key  =key.clone();
+                let key = key.clone();
                 task::spawn(async move {
                     let mut buf = &mut [0; 1024];
                     conn.read(buf);
@@ -289,9 +301,13 @@ impl Server {
                         Ok(buf) => {
                             match serde_json::from_str::<Value>(buf.trim_end_matches(char::from(0)))
                             {
-                                Ok(buf) => match ServerRequest::new(buf,key.as_str()) {
+                                Ok(buf) => match ServerRequest::new(buf, key.as_str()) {
                                     Ok((rx, req)) => {
-                                        let t = std::thread::spawn(move ||  { task::block_on(async move {Self::worker_thread(req, svnew).await })}); 
+                                        let t = std::thread::spawn(move || {
+                                            task::block_on(async move {
+                                                Self::worker_thread(req, svnew).await
+                                            })
+                                        });
                                         drop(t);
                                         match rx.recv_timeout(std::time::Duration::from_secs(10)) {
                                             Ok(dat) => {
@@ -324,7 +340,7 @@ impl Server {
                         }
                         Err(_) => {
                             println!("Not a valid utf-8 string")
-                        },
+                        }
                     }
                 });
             }
@@ -345,12 +361,12 @@ impl Server {
                     guard.create_world(&world_name);
                     request.handle(ServerResponse::new(ServerResponseType::Ok {}));
                 } else {
-                    request.handle(ServerResponse::new(ServerResponseType::PermissionDenied {  }));
+                    request.handle(ServerResponse::new(ServerResponseType::PermissionDenied {}));
                 }
             }
             ServerRequestType::Login { user, password } => {
                 let guard = sv.read().unwrap();
-                let x= guard.generate_session(&user, &password).await;
+                let x = guard.generate_session(&user, &password).await;
                 match x {
                     Some(token) => {
                         request.handle(ServerResponse::new(ServerResponseType::AuthSuccess {
@@ -362,9 +378,7 @@ impl Server {
                     }
                 }
             }
-            other => {
-
-            }
+            other => {}
         }
         match &request.world {
             Some(world_name) => {
@@ -372,14 +386,12 @@ impl Server {
                 match guard.game.get(world_name) {
                     Some(gm) => {
                         let gmc = gm.clone();
-                        game::Game::handle(gmc,request);
-                    },
+                        game::Game::handle(gmc, request);
+                    }
                     None => todo!(),
                 }
             }
-            None => {
-
-            }
+            None => {}
         }
     }
     pub async fn new(args: &args::Args) -> Server {
@@ -392,8 +404,10 @@ impl Server {
         );
         println!("Connecting to database at {}", args.database_host);
         let pool = MySqlPoolOptions::new()
-        .max_connections(5)
-        .connect(&dburl).await.expect("Could not get db conn");
+            .max_connections(5)
+            .connect(&dburl)
+            .await
+            .expect("Could not get db conn");
         println!("Connection establised");
         Self {
             dburl: dburl,
@@ -407,7 +421,7 @@ impl Server {
         self.initialize_database().await;
         if !self.user_exists("admin").await {
             println!("Creating user admin with default password \"password\"");
-            self.create_user("admin", "password", true).await; 
+            self.create_user("admin", "password", true).await;
         }
         let listener = TcpListener::bind(&self.listen_url).expect("Could not bind to ip/port");
         //create server arc

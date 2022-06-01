@@ -6,20 +6,20 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 use std::thread::JoinHandle;
 
-use crate::{component, game};
+use crate::chunk::{self, Chunk};
+use crate::context;
 use crate::entity;
 use crate::game_event;
-use crate::context;
 use crate::generator;
-use crate::chunk::{self, Chunk};
+use crate::{component, game};
 use log::{info, trace, warn};
-use sqlx::{Pool, MySql, Row};
+use sqlx::{MySql, Pool, Row};
 
 pub struct World {
     entities: HashMap<entity::EntityId, entity::Entity>,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
-    conn : Pool<MySql>,
-    world_id : String,
+    conn: Pool<MySql>,
+    world_id: String,
 }
 
 struct EntityFilterTree<'a> {
@@ -72,42 +72,43 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new(conn : Pool<MySql>, world_name : String) -> Self {
+    pub fn new(conn: Pool<MySql>, world_name: String) -> Self {
         Self {
             entities: HashMap::new(),
-            chunks : HashMap::new(),
-            conn : conn,
-            world_id : world_name
+            chunks: HashMap::new(),
+            conn: conn,
+            world_id: world_name,
         }
     }
-    async fn load_chunk(&self, chunk_id : chunk::ChunkId) -> Option<chunk::Chunk> {
+    async fn load_chunk(&self, chunk_id: chunk::ChunkId) -> Option<chunk::Chunk> {
         let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
-        .bind(chunk_id)
-        .bind(&self.world_id)
-        .fetch_optional(&self.conn).await.expect("error querying database for chunk");
+            .bind(chunk_id)
+            .bind(&self.world_id)
+            .fetch_optional(&self.conn)
+            .await
+            .expect("error querying database for chunk");
         match r {
             Some(row) => {
-                let c = Chunk::new(row.try_get("dat").expect("chunk format in database invalid"));
+                let c = Chunk::new(
+                    row.try_get("dat")
+                        .expect("chunk format in database invalid"),
+                );
                 return match c {
-                    Ok(chunk) => {
-                        Some(chunk)
-                    },
-                    Err(_) => {
-                        None
-                    },
-                }
-            },
+                    Ok(chunk) => Some(chunk),
+                    Err(_) => None,
+                };
+            }
             None => {
                 return None;
-            },
+            }
         }
         todo!()
     }
-    
+
     pub fn process(
         &self,
         gens: &Vec<Box<dyn generator::Generator>>,
-        context : Arc<context::Context>
+        context: Arc<context::Context>,
     ) -> Vec<Box<dyn game_event::GameEventInterface>> {
         let mut res: Vec<Box<dyn game_event::GameEventInterface>> = Vec::new();
         let aresult: Arc<RwLock<&mut Vec<Box<dyn game_event::GameEventInterface>>>> =

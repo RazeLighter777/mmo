@@ -1,28 +1,31 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{resource, raws::Raw};
-
+use crate::{raws::Raw, resource};
+use crate::effect;
 pub type BlockTypeId = u16;
-#[derive(Deserialize,Clone)]
+#[derive(Deserialize, Clone)]
+#[repr(u8)]
 pub enum BlockLayer {
     Ground = 0,
     Solid = 1,
     Water = 2,
     Pit = 3,
+    Effect(
+        effect::Effect
+    ) = 5
 }
 
 #[derive(Deserialize)]
 pub struct BlockType {
-    canonical_name : String,
-    descriptive_name : String,
-    raw_path : String,
-    layer : BlockLayer,
+    canonical_name: String,
+    descriptive_name: String,
+    raw_path: String,
+    layer: BlockLayer,
 }
 
-
 impl BlockType {
-    pub fn new(raw : &Raw) -> Result<BlockType, serde_json::Error> {
-        let res : BlockType = serde_json::from_value(raw.dat().clone())?;
+    pub fn new(raw: &Raw) -> Result<BlockType, serde_json::Error> {
+        let res: BlockType = serde_json::from_value(raw.dat().clone())?;
         Ok(res)
     }
     pub fn get_canonical_name(&self) -> &str {

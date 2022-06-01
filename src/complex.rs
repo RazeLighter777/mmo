@@ -1,5 +1,1 @@
-
-
-pub trait Complex {
-    
-}
+pub trait Complex {}

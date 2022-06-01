@@ -22,19 +22,19 @@ pub struct Game {
     generators: Vec<Box<dyn generator::Generator>>,
     handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
-    conn : Pool<MySql>,
-    raws : RawTree
+    conn: Pool<MySql>,
+    raws: RawTree,
 }
 
 impl Game {
-    pub fn new(path : &str, conn : Pool<MySql>, world_id : String) -> Self {
+    pub fn new(path: &str, conn: Pool<MySql>, world_id: String) -> Self {
         Game {
             world: world::World::new(conn.clone(), world_id),
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
-            raws : RawTree::new(path),
-            conn : conn
+            raws: RawTree::new(path),
+            conn: conn,
         }
     }
     pub async fn handle(sv: Arc<RwLock<Self>>, request: ServerRequest) {}
@@ -56,7 +56,10 @@ impl Game {
                 }
                 drop(gmw1);
                 let gmr1 = gm.read().unwrap();
-                let evs = gmr1.world.process(&gmr1.generators, Arc::new(context::Context { raws : &gmr1.raws}));
+                let evs = gmr1.world.process(
+                    &gmr1.generators,
+                    Arc::new(context::Context { raws: &gmr1.raws }),
+                );
                 drop(gmr1);
                 let mut gmw2 = gm.write().unwrap();
                 gmw2.event_collector.add_events(evs);

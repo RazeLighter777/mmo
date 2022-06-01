@@ -6,7 +6,7 @@ use std::hash::{BuildHasher, Hasher};
 pub const fn get_type_id<DataType: 'static + ComponentDataType>() -> u64 {
     hashing::string_hash(std::any::type_name::<DataType>())
 }
-pub trait ComponentDataType: Serialize + DeserializeOwned {}
+pub trait ComponentDataType: Serialize + DeserializeOwned + Sync + Send {}
 
 pub trait ComponentInterface: Send + Sync {
     fn get_id(&self) -> ComponentId;
