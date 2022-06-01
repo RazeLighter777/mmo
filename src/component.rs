@@ -48,16 +48,18 @@ impl<T: ComponentDataType + 'static + Send + Sync> ComponentInterface for Compon
     }
 }
 impl<T: ComponentDataType + 'static> Component<T> {
-    pub fn new(mut data: T, parent: EntityId, context : Arc<context::Context>) -> Self {
-        data.post_deserialization(context.clone());
-        Self {
+    pub fn new(mut data: T, parent: EntityId, context : Arc<context::Context>) -> Vec<Box<dyn ComponentInterface>> {
+        let mut res = data.post_deserialization(context);
+        let main = Self {
             iid: std::collections::hash_map::RandomState::new()
                 .build_hasher()
                 .finish(),
             pid: parent,
             tid: get_type_id::<T>(),
             data: data,
-        }
+        };
+        res.push(Box::new(main));
+        res
     }
     pub fn dat(&self) -> &T {
         &self.data

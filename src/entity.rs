@@ -29,13 +29,17 @@ impl<'a> EntityBuilder<'a> {
         .finish(), context)
     }
     pub fn add<T: component::ComponentDataType + 'static + Send + Sync>(mut self, data: T) -> Self {
-        self.e.components.insert(
-            component::get_type_id::<T>(),
-            Box::new(component::Component::new(data, self.e.iid,self.context.clone())),
-        );
+        let cmps = component::Component::new(data, self.e.iid,self.context.clone());
+        for boxcmp in cmps { 
+            self.e.components.insert(
+            boxcmp.get_type_id(),
+                boxcmp,
+            );
+        }
         self
     }
-    pub fn add_existing(mut self, component : Box<dyn component::ComponentInterface>) -> Self {
+    pub fn add_existing(mut self, mut component : Box<dyn component::ComponentInterface>) -> Self {
+        component.set_parent(self.e.get_id());
         self.e.components.insert(component.get_type_id(), component);
         self
     }
