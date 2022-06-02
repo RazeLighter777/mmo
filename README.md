@@ -1,4 +1,9 @@
 # mmo
-A simple multithreaded TCP application server serving a MySQL backend.
-Licensed under the MIT License. 
-
+A multithreaded websocket MMO with a MySQL backend
+# technologies used:
+- MySQL
+- Rust
+- Websockets
+- JavaScript
+- WebGL
+- Asynchronous Programming
