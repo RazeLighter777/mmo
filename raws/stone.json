@@ -1,0 +1,6 @@
+{
+    "path" : "block/stone",
+    "canonical_name" : "stone",
+    "descriptive_name" : "A grey stone floor",
+    "layer" : "Ground"
+}

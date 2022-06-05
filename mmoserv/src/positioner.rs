@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::generator;
-use crate::world;
+use mmolib::generator;
+use mmolib::world;
 use mmolib;
 use std::net::{TcpListener, TcpStream};
 

@@ -7,8 +7,7 @@ use std::{
 //use crate::world::World;
 use crate::{
     component::{self, ComponentDataType},
-    context,
-    registry::Registry,
+    registry::Registry, world::World,
 };
 pub type EntityId = u64;
 pub struct Entity {
@@ -17,26 +16,26 @@ pub struct Entity {
 }
 pub struct EntityBuilder<'a> {
     e: Entity,
-    context: Arc<context::Context<'a>>,
+    world : &'a World,
 }
 impl<'a> EntityBuilder<'a> {
-    pub fn new_with_id(id: EntityId, ct: Arc<context::Context<'a>>) -> EntityBuilder<'a> {
+    pub fn new_with_id(id: EntityId, world : &'a World) -> EntityBuilder<'a> {
         let e = Entity {
             iid: id,
             components: HashMap::new(),
         };
-        Self { e, context: ct }
+        Self { e, world : world}
     }
-    pub fn new(registry: &Registry, context: Arc<context::Context<'a>>) -> EntityBuilder<'a> {
+    pub fn new(registry: &Registry, world : &'a World) -> EntityBuilder<'a> {
         Self::new_with_id(
             std::collections::hash_map::RandomState::new()
                 .build_hasher()
                 .finish(),
-            context,
+            world,
         )
     }
     pub fn add<T: component::ComponentDataType + 'static + Send + Sync>(mut self, data: T) -> Self {
-        let cmps = component::Component::new(data, self.e.iid, self.context.clone());
+        let cmps = component::Component::new(data, self.e.iid, self.world);
         for boxcmp in cmps {
             self.e.components.insert(boxcmp.get_type_id(), boxcmp);
         }

@@ -2,20 +2,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use async_std::sync::RwLock;
-use async_std::task;
+use tokio::sync::RwLock;
+use tokio::task;
 use serde_json::json;
 use sqlx::MySql;
 use sqlx::Pool;
 
 use crate::event_collector;
 use mmolib::game_event::GameEvent;
-use crate::generator;
 use crate::handler;
 use mmolib::raws::RawTree;
+use mmolib::world;
 use crate::server;
 use crate::server_request::ServerRequest;
-use crate::world;
+use mmolib::generator;
 pub struct Game {
     world: world::World,
     generators: Vec<Box<dyn generator::Generator>>,
@@ -28,7 +28,7 @@ impl Game {
     pub fn new(path: &str, conn: Pool<MySql>, world_id: String) -> Self {
         let rt = RawTree::new(path);
         Game {
-            world: world::World::new(conn.clone(), world_id, rt),
+            world: world::World::new(world_id, rt),
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),

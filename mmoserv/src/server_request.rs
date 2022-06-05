@@ -1,7 +1,7 @@
 
 use std::sync::{Arc};
-use async_std::{ net::TcpStream, sync::RwLock};
-use async_tungstenite::{tungstenite::WebSocket, WebSocketStream};
+use tokio::{ net::TcpStream, sync::RwLock};
+use tokio_tungstenite::{tungstenite::WebSocket, WebSocketStream};
 use crossbeam_channel::{Receiver, Sender};
 use jsonwebtoken::{decode, DecodingKey, TokenData, Validation};
 use serde::{Deserialize, Serialize};

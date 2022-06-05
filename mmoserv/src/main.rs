@@ -11,16 +11,14 @@ mod chunk_generator;
 mod complex;
 mod event_collector;
 mod game;
-mod generator;
 mod gravity;
 mod handler;
+mod sql_loaders;
 mod positioner;
 mod server;
 mod server_request;
-mod world;
-use crate::{world::World};
 use std::time::Duration;
-#[async_std::main]
+#[tokio::main]
 async fn main() {
     let args = args::Args::parse();
     let mut server = server::Server::new(&args).await;

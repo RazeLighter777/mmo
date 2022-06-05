@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     component::{self, ComponentInterface},
-    context, registry,
 };
 
 #[derive(Serialize, Deserialize, Debug)]

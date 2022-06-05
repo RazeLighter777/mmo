@@ -5,9 +5,9 @@ crossbeam-channel = "0.5.4"
 jsonwebtoken = "8.1.0"
 serde_json = "1.0"
 serde_cbor = "0.11.2"
-sqlx = { version = "0.5", features = [ "runtime-async-std-rustls", "mysql" ]}
-async-std = { version = "1", features = [ "attributes" ] }
-async-tungstenite = {version = "*", features = ["async-std-runtime"]}
+sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "mysql" ]}
+tokio = { version = "1.18.2", features = ["full"] }
+tokio-tungstenite = "*"
 futures = "0.3"
 mmolib = {path = "../mmolib", version = "*"}
 
@@ -28,5 +28,5 @@ edition = "2021"
 name = "mmoserv"
 version = "0.1.0"
 [[bin]]
-name = "ecs"
+name = "mmoserv"
 path = "src/main.rs"

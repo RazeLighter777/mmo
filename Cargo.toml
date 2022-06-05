@@ -1,3 +1,4 @@
 
 [workspace]
-members = ["ecs", "frontendmmo"]
+resolver = "2" # Important! wgpu/Bevy needs this!
+members = ["mmoserv", "mmocli","mmolib"]

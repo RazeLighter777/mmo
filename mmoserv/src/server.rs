@@ -5,12 +5,10 @@ use crate::server_request::ServerRequest;
 use crate::server_request::ServerRequestType;
 use crate::server_request::ServerResponse;
 use crate::server_request::ServerResponseType;
-use async_std::sync::RwLock;
-//use async_std::prelude::*;
-use async_std::task;
-use async_tungstenite::WebSocketStream;
-use async_tungstenite::tungstenite::Message;
-use async_tungstenite::tungstenite::WebSocket;
+use tokio::runtime::Handle;
+use tokio::sync::RwLock;
+//use tokio::prelude::*;
+use tokio::task;
 use bcrypt::bcrypt;
 use crossbeam_channel::internal::SelectHandle;
 use crossbeam_channel::Receiver;
@@ -19,8 +17,8 @@ use jsonwebtoken::TokenData;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{info, warn};
 
-use async_std::net::TcpListener;
-use async_std::net::TcpStream;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use futures::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
@@ -33,6 +31,8 @@ use sqlx::Acquire;
 use sqlx::MySql;
 use sqlx::Pool;
 use sqlx::Row;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
@@ -203,7 +203,7 @@ impl Server {
                 let svnew = sv.clone();
                 let key = key.clone();
                 task::spawn(async move {
-                    let mut wsr = async_tungstenite::accept_async(conn)
+                    let mut wsr = tokio_tungstenite::accept_async(conn)
                         .await
                         .expect("Was not valid websocket connection");
                     let mut ws = Arc::new(RwLock::new(wsr));
@@ -219,14 +219,12 @@ impl Server {
                                     Ok(v) => match ServerRequest::new(v, &key,ws.clone()) {
                                         Ok((rec, req)) => {
                                             let svnew = svnew.clone();
-                                            let t = std::thread::spawn(move || {
-                                                task::block_on(async move {
-                                                    Self::worker_thread(req, svnew).await
-                                                })
+                                            let t = tokio::task::spawn(async move {
+                                                Self::worker_thread(req, svnew).await;
                                             });
-                                            drop(t);
+                                            tokio::time::timeout(std::time::Duration::from_secs(10), t).await;
                                             match rec
-                                                .recv_timeout(std::time::Duration::from_secs(10))
+                                                .recv()
                                             {
                                                 Ok(dat) => {
                                                     let mut wsrwlk = ws.write().await;

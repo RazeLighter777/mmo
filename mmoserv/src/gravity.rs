@@ -1,9 +1,8 @@
 use std::sync::Arc;
 use std::sync::Mutex;
-
-use crate::generator;
-use crate::world;
 use mmolib;
+use mmolib::generator;
+use mmolib::world;
 pub struct Gravity {}
 
 impl generator::Generator for Gravity {

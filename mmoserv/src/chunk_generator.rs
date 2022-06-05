@@ -1,4 +1,4 @@
-use crate::{
+use mmolib::{
     world,
 };
 use mmolib;
