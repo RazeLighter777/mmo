@@ -11,12 +11,13 @@ mod chunk_generator;
 mod complex;
 mod event_collector;
 mod game;
+mod connection;
 mod gravity;
 mod handler;
 mod sql_loaders;
 mod positioner;
-mod server;
 mod server_request;
+mod server;
 use std::time::Duration;
 #[tokio::main]
 async fn main() {

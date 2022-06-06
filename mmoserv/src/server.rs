@@ -2,9 +2,9 @@ use crate::args;
 use crate::game;
 use crate::server_request::ServerClaims;
 use crate::server_request::ServerRequest;
-use crate::server_request::ServerRequestType;
 use crate::server_request::ServerResponse;
-use crate::server_request::ServerResponseType;
+use mmolib::server_request_type::ServerRequestType;
+use mmolib::server_response_type::ServerResponseType;
 use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 //use tokio::prelude::*;
@@ -266,7 +266,7 @@ impl Server {
         }
     }
     pub async fn create_world(&mut self, world_name: &str) {
-        let g = game::Game::new("./raws", self.pool.clone(), world_name.to_owned());
+        let g = game::Game::new("../raws", self.pool.clone(), world_name.to_owned());
         let gmrwlock = Arc::new(RwLock::new(g));
         let gmrwlock2 = gmrwlock.clone();
         game::Game::start_game(gmrwlock).await;

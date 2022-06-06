@@ -1,7 +1,6 @@
 [dependencies]
 bcrypt = "0.13.0"
 const-fnv1a-hash = "1.0.1"
-crossbeam-channel = "0.5.4"
 jsonwebtoken = "8.1.0"
 serde_json = "1.0"
 serde_cbor = "0.11.2"
@@ -10,6 +9,7 @@ tokio = { version = "1.18.2", features = ["full"] }
 tokio-tungstenite = "*"
 futures = "0.3"
 mmolib = {path = "../mmolib", version = "*"}
+crossbeam-channel = "0.5.4"
 
 [dependencies.clap]
 features = ["derive"]

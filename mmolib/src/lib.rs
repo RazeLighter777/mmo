@@ -19,3 +19,5 @@ pub mod generator;
 pub mod raws;
 pub mod registry;
 pub mod resource;
+pub mod server_request_type;
+pub mod server_response_type;

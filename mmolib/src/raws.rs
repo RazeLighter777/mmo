@@ -127,6 +127,6 @@ impl Raw {
 
 #[test]
 fn raw_search_all() {
-    let rt = RawTree::new("./raws");
+    let rt = RawTree::new("C:\\Users\\justin\\Code\\mmo\\raws");
     println!("len {}", rt.search_for_all(&["one".to_owned()]).len())
 }

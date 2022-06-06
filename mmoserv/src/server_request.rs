@@ -1,5 +1,6 @@
 
 use std::sync::{Arc};
+use mmolib::{ server_response_type::ServerResponseType, server_request_type::ServerRequestType};
 use tokio::{ net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{tungstenite::WebSocket, WebSocketStream};
 use crossbeam_channel::{Receiver, Sender};
@@ -7,23 +8,9 @@ use jsonwebtoken::{decode, DecodingKey, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ServerRequestType {
-    CreateGame { world_name: String },
-    Login { user: String, password: String },
-    Logout {},
-}
+use crate::connection;
 
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ServerResponseType {
-    AuthSuccess { session_token: String },
-    Ok {},
-    AuthFailure {},
-    TimedOut {},
-    PermissionDenied {},
-}
+
 pub struct ServerRequest {
     sn: Sender<ServerResponse>,
     dat: ServerRequestType,
@@ -98,8 +85,8 @@ impl ServerRequest {
     pub fn get_world(&self) -> &Option<String> {
         &self.world
     }
-    pub fn get_connection(&self) -> Arc<RwLock<WebSocketStream<TcpStream>>> {
-        self.connnection_lock.clone()
+    pub fn get_connection(&self) -> connection::Connection {
+        connection::Connection::new(self.connnection_lock.clone())
     }
 }
 #[derive(Serialize, Deserialize)]
