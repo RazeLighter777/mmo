@@ -1,7 +1,6 @@
 #![feature(const_type_name)]
 #![feature(arbitrary_enum_discriminant)]
 #![feature(scoped_threads)]
-#![feature(nll)]
 #![allow(unused)]
 #![deny(warnings)]
 use bevy::{prelude::*, window::WindowMode};

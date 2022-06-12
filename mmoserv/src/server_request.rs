@@ -79,7 +79,7 @@ impl ServerRequest {
         &self.world
     }
     pub fn get_connection(&self) -> connection::Connection {
-        connection::Connection::new(self.connnection_lock.clone())
+        connection::Connection::new(self.connnection_lock.clone(), self.get_user().unwrap_or(""))
     }
     pub async fn handle(self, request_dat: &ServerResponseType) {
         let lk = self.connnection_lock.write();

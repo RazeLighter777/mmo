@@ -17,6 +17,7 @@ use crate::{pos, raws, registry};
 use serde_json::Value;
 
 pub struct World {
+    component_type_id_to_entity_id : HashMap<component::ComponentTypeId, entity::EntityId>,
     entities: HashMap<entity::EntityId, entity::Entity>,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
@@ -76,6 +77,7 @@ impl<'a> EntityFilterTree<'a> {
 impl World {
     pub fn new(world_name: String, raws: raws::RawTree) -> Self {
         Self {
+            component_type_id_to_entity_id : HashMap::new(),
             entities: HashMap::new(),
             chunks: HashMap::new(),
             world_id: world_name,

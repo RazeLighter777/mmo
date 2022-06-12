@@ -14,7 +14,7 @@ async fn load_entity(
     conn: Pool<MySql>,
     entity_id: entity::EntityId,
     world: &mut World,
-) -> Option<entity::Entity> {
+) -> Option<(Vec<Box<dyn component::ComponentInterface>>, entity::Entity)> {
     let r = sqlx::query("SELECT dat, type_id FROM components JOIN entities ON components.entity_id = entities.entity_id WHERE components.entity_id = ?")
     .bind(entity_id)
     .fetch_all(&conn).await.expect("Error in database when loading entity");
