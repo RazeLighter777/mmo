@@ -1,35 +1,33 @@
-
-use std::sync::{Arc};
-use mmolib::{ server_response_type::ServerResponseType, server_request_type::ServerRequestType};
-use tokio::{ net::TcpStream, sync::RwLock};
-use tokio_tungstenite::{tungstenite::WebSocket, WebSocketStream};
 use crossbeam_channel::{Receiver, Sender};
+use futures::{stream::SplitSink, SinkExt};
 use jsonwebtoken::{decode, DecodingKey, TokenData, Validation};
+use mmolib::{server_request_type::ServerRequestType, server_response_type::ServerResponseType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
+use tokio::{net::TcpStream, sync::RwLock};
+use tokio_tungstenite::{
+    tungstenite::{Message, WebSocket},
+    WebSocketStream,
+};
 
 use crate::connection;
 
-
 pub struct ServerRequest {
-    sn: Sender<ServerResponse>,
     dat: ServerRequestType,
     world: Option<String>,
     session_token: Option<String>,
     claims: Option<TokenData<ServerClaims>>,
-    connnection_lock : Arc<RwLock<WebSocketStream<TcpStream>>>
+    connnection_lock: Arc<RwLock<SplitSink<WebSocketStream<TcpStream>, Message>>>,
 }
 
 impl ServerRequest {
-    pub fn handle(&self, response: ServerResponse) {
-        self.sn.send(response);
-    }
     pub fn new(
         dat: Value,
         secret_key: &str,
-        connection_lock : Arc<RwLock<WebSocketStream<TcpStream>>>,
-    ) -> Result<(Receiver<ServerResponse>, ServerRequest), serde_json::Error> {
-        let op: Option<String> = match dat.get("world") {
+        connection_lock: Arc<RwLock<SplitSink<WebSocketStream<TcpStream>, Message>>>,
+    ) -> Result<ServerRequest, serde_json::Error> {
+        let op: Option<String> = match dat.get("world_name") {
             Some(val) => val.as_str().map(Into::into),
             None => None,
         };
@@ -54,18 +52,13 @@ impl ServerRequest {
             }
             None => None,
         };
-        let (tx, rx) = crossbeam_channel::unbounded();
-        Ok((
-            rx,
-            Self {
-                sn: tx,
-                dat: serde_json::from_value(dat)?,
-                world: op,
-                session_token: session_token,
-                claims: claims,
-                connnection_lock : connection_lock
-            },
-        ))
+        Ok(Self {
+            dat: serde_json::from_value(dat)?,
+            world: op,
+            session_token: session_token,
+            claims: claims,
+            connnection_lock: connection_lock,
+        })
     }
     pub fn get_user(&self) -> Option<&str> {
         match &self.claims {
@@ -88,21 +81,17 @@ impl ServerRequest {
     pub fn get_connection(&self) -> connection::Connection {
         connection::Connection::new(self.connnection_lock.clone())
     }
+    pub async fn handle(self, request_dat: &ServerResponseType) {
+        let lk = self.connnection_lock.write();
+        let request_json = serde_json::to_string(request_dat).unwrap();
+        lk.await.send(Message::Text(request_json)).await;
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub struct ServerClaims {
     pub user_name: String,
     pub is_admin: bool,
     pub exp: usize,
-}
-pub struct ServerResponse {
-    pub dat: ServerResponseType,
-}
-
-impl ServerResponse {
-    pub fn new(dat: ServerResponseType) -> ServerResponse {
-        Self { dat: dat }
-    }
 }
 pub struct User {
     pub user_name: String,

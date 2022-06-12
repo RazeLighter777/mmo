@@ -10,8 +10,8 @@ use connection::Connection;
 use fltk::dialog;
 mod args;
 mod connection;
-mod help_menu;
 mod game_state;
+mod help_menu;
 mod main_menu;
 #[tokio::main]
 async fn main() {

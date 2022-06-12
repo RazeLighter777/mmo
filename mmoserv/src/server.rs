@@ -2,13 +2,12 @@ use crate::args;
 use crate::game;
 use crate::server_request::ServerClaims;
 use crate::server_request::ServerRequest;
-use crate::server_request::ServerResponse;
+use futures::task::noop_waker;
 use mmolib::server_request_type::ServerRequestType;
 use mmolib::server_response_type::ServerResponseType;
 use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 //use tokio::prelude::*;
-use tokio::task;
 use bcrypt::bcrypt;
 use crossbeam_channel::internal::SelectHandle;
 use crossbeam_channel::Receiver;
@@ -16,9 +15,8 @@ use crossbeam_channel::Sender;
 use jsonwebtoken::TokenData;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{info, warn};
+use tokio::task;
 
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
 use futures::prelude::*;
 use serde::Deserialize;
 use serde::Serialize;
@@ -31,13 +29,17 @@ use sqlx::Acquire;
 use sqlx::MySql;
 use sqlx::Pool;
 use sqlx::Row;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::Message;
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::task::Context;
+use std::thread::park;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::WebSocketStream;
 
 pub struct Server {
     dburl: String,
@@ -45,7 +47,7 @@ pub struct Server {
     game: HashMap<String, Arc<RwLock<game::Game>>>,
     key: String,
     listen_url: String,
-    open_streams : Vec<Arc<RwLock<WebSocketStream<TcpStream>>>>
+    open_streams: Vec<Arc<RwLock<WebSocketStream<TcpStream>>>>,
 }
 
 impl Server {
@@ -203,70 +205,61 @@ impl Server {
                 let svnew = sv.clone();
                 let key = key.clone();
                 task::spawn(async move {
-                    let mut wsr = tokio_tungstenite::accept_async(conn)
+                    let (wsw, mut wsr) = tokio_tungstenite::accept_async(conn)
                         .await
-                        .expect("Was not valid websocket connection");
-                    let mut ws = Arc::new(RwLock::new(wsr));
+                        .expect("Could not listen on the websocket connection")
+                        .split();
+                    //there can be multiple connection senders, but only one reader. That's why ws write (wsw) is in an arc.
+                    let mut wsw = Arc::new(RwLock::new(wsw));
                     loop {
-                        let mut wsrwlk = ws.write().await;
-                        let msg = wsrwlk.next();
-                        let msg = msg.await.unwrap().unwrap();
-                        drop(wsrwlk);
-                        {
-                            if msg.is_text() {
-                                let txt = msg.into_text().unwrap();
-                                match serde_json::from_str(&txt) {
-                                    Ok(v) => match ServerRequest::new(v, &key,ws.clone()) {
-                                        Ok((rec, req)) => {
-                                            let svnew = svnew.clone();
-                                            let t = tokio::task::spawn(async move {
-                                                Self::worker_thread(req, svnew).await;
-                                            });
-                                            tokio::time::timeout(std::time::Duration::from_secs(10), t).await;
-                                            match rec
-                                                .recv()
-                                            {
-                                                Ok(dat) => {
-                                                    let mut wsrwlk = ws.write().await;
-                                                    wsrwlk.send(Message::Text(
-                                                        serde_json::to_string(&dat.dat)
-                                                            .unwrap()
-                                                            .as_str()
-                                                            .to_owned(),
-                                                    )).await;
+                        //loop until connection is terminated
+                        match wsr.next().await {
+                            Some(msg) => match msg {
+                                Ok(msg) => match msg.to_text() {
+                                    Ok(txt) => match serde_json::from_str(txt) {
+                                        Ok(json_value) => {
+                                            match ServerRequest::new(
+                                                json_value,
+                                                &key.clone(),
+                                                wsw.clone(),
+                                            ) {
+                                                Ok(request) => {
+                                                    Self::worker_thread(request, svnew.clone())
+                                                        .await;
                                                 }
                                                 Err(_) => {
-                                                    let mut wsrwlk = ws.write().await;
-                                                    wsrwlk.send(Message::Text(
-                                                        serde_json::to_string(
-                                                            &ServerResponseType::TimedOut {},
-                                                        )
-                                                        .unwrap()
-                                                        .as_str()
-                                                        .to_owned(),
-                                                    )).await;
-                                                    println!("Timed out");
+                                                    println!("Was valid json but not valid server request");
                                                 }
                                             }
                                         }
                                         Err(_) => {
-                                            println!("Client send invalid server request");
+                                            println!("Was not valid json");
                                         }
                                     },
                                     Err(_) => {
-                                        println!("Client sent invalid json")
+                                        println!("Websocket message was not text");
                                     }
+                                },
+                                Err(_) => {
+                                    println!("Websocket error in message")
                                 }
+                            },
+                            None => {
+                                println!("Could not await next message from websocket reader");
+                                break;
                             }
                         }
                     }
-                    //conn.read(buf);
                 });
             }
         }
     }
     pub async fn create_world(&mut self, world_name: &str) {
-        let g = game::Game::new("../raws", self.pool.clone(), world_name.to_owned());
+        let g = game::Game::new(
+            "C:\\Users\\justin\\Code\\mmo\\raws",
+            self.pool.clone(),
+            world_name.to_owned(),
+        );
         let gmrwlock = Arc::new(RwLock::new(g));
         let gmrwlock2 = gmrwlock.clone();
         game::Game::start_game(gmrwlock).await;
@@ -278,9 +271,11 @@ impl Server {
                 if request.is_admin() {
                     let mut guard = sv.write().await;
                     guard.create_world(&world_name).await;
-                    request.handle(ServerResponse::new(ServerResponseType::Ok {}));
+                    request.handle(&ServerResponseType::Ok {}).await;
                 } else {
-                    request.handle(ServerResponse::new(ServerResponseType::PermissionDenied {}));
+                    request
+                        .handle(&ServerResponseType::PermissionDenied {})
+                        .await;
                 }
             }
             ServerRequestType::Login { user, password } => {
@@ -288,29 +283,33 @@ impl Server {
                 let x = guard.generate_session(&user, &password).await;
                 match x {
                     Some(token) => {
-                        request.handle(ServerResponse::new(ServerResponseType::AuthSuccess {
-                            session_token: token,
-                        }));
+                        request
+                            .handle(&ServerResponseType::AuthSuccess {
+                                session_token: token,
+                            })
+                            .await;
                     }
                     None => {
-                        request.handle(ServerResponse::new(ServerResponseType::AuthFailure {}));
+                        request.handle(&ServerResponseType::AuthFailure {}).await;
                     }
                 }
             }
-            other => {}
-        }
-        match &request.get_world() {
-            Some(world_name) => {
-                let guard = sv.read().await;
-                match guard.game.get(world_name) {
-                    Some(gm) => {
-                        let gmc = gm.clone();
-                        game::Game::handle(gmc, request).await;
+            other => match request.get_world().to_owned() {
+                Some(world_name) => {
+                    let guard = sv.read().await;
+                    match guard.game.get(&world_name) {
+                        Some(gm) => {
+                            let gmc = gm.clone();
+                            game::Game::handle(gmc, request).await;
+                        }
+                        None => {
+                            request.handle(&ServerResponseType::AuthFailure {}).await;
+                            println!("World {} doesn't exist yet", &world_name);
+                        }
                     }
-                    None => todo!(),
                 }
-            }
-            None => {}
+                None => {}
+            },
         }
     }
     pub async fn new(args: &args::Args) -> Server {
@@ -334,7 +333,7 @@ impl Server {
             pool: pool,
             game: HashMap::new(),
             key: key,
-            open_streams : Vec::new()
+            open_streams: Vec::new(),
         }
     }
     pub async fn run_game(self) {

@@ -10,10 +10,7 @@ pub const fn get_type_id<DataType: 'static + ComponentDataType>() -> u64 {
     hashing::string_hash(std::any::type_name::<DataType>())
 }
 pub trait ComponentDataType: Serialize + DeserializeOwned + Sync + Send {
-    fn post_deserialization(
-        &mut self,
-        world : &World,
-    ) -> Vec<Box<dyn ComponentInterface>> {
+    fn post_deserialization(&mut self, world: &World) -> Vec<Box<dyn ComponentInterface>> {
         Vec::new()
     }
 }
@@ -56,11 +53,7 @@ impl<T: ComponentDataType + 'static + Send + Sync> ComponentInterface for Compon
     }
 }
 impl<T: ComponentDataType + 'static> Component<T> {
-    pub fn new(
-        mut data: T,
-        parent: EntityId,
-        world : &World,
-    ) -> Vec<Box<dyn ComponentInterface>> {
+    pub fn new(mut data: T, parent: EntityId, world: &World) -> Vec<Box<dyn ComponentInterface>> {
         let mut res = data.post_deserialization(world);
         let main = Self {
             iid: std::collections::hash_map::RandomState::new()

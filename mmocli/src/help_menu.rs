@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use crate::game_state::{self, GameState};
 use bevy::{prelude::*, ui};
-use fltk::{app, prelude::*, window::Window, dialog};
+use fltk::{app, dialog, prelude::*, window::Window};
 
 struct HelpMenuRoot {
     camera: Entity,
     ui_root: Entity,
 }
-enum HelpMenuOptions { 
+enum HelpMenuOptions {
     Back,
     Connect,
 }
@@ -18,9 +18,7 @@ impl Plugin for HelpMenuPlugin {
         app.add_system_set(
             SystemSet::on_enter(game_state::GameState::HelpMenu).with_system(setup_main_menu),
         )
-        .add_system_set(
-            SystemSet::on_exit(game_state::GameState::HelpMenu).with_system(cleanup),
-        );
+        .add_system_set(SystemSet::on_exit(game_state::GameState::HelpMenu).with_system(cleanup));
     }
 }
 
@@ -59,21 +57,21 @@ pub fn setup_main_menu(mut commands: Commands, asset_server: ResMut<AssetServer>
         },
         ..NodeBundle::default()
     };
-    let ui_root = commands.spawn_bundle(main_bundle)
-    .with_children(|mut parent| {
-        parent.spawn_bundle(ButtonBundle {
-            image : UiImage(asset_server.load("images/connect.png")),
-            style : ip_button_style.clone(),
-            ..Default::default()
-        });
-    }).id();
+    let ui_root = commands
+        .spawn_bundle(main_bundle)
+        .with_children(|mut parent| {
+            parent.spawn_bundle(ButtonBundle {
+                image: UiImage(asset_server.load("images/connect.png")),
+                style: ip_button_style.clone(),
+                ..Default::default()
+            });
+        })
+        .id();
     let camera = commands.spawn_bundle(UiCameraBundle::default()).id();
-    commands.insert_resource(
-        HelpMenuRoot {
-            camera : camera,
-            ui_root : ui_root
-        }
-    );
+    commands.insert_resource(HelpMenuRoot {
+        camera: camera,
+        ui_root: ui_root,
+    });
 }
 
 fn cleanup(mut commands: Commands, menu_data: Res<HelpMenuRoot>) {

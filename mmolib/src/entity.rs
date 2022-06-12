@@ -7,7 +7,8 @@ use std::{
 //use crate::world::World;
 use crate::{
     component::{self, ComponentDataType},
-    registry::Registry, world::World,
+    registry::Registry,
+    world::World,
 };
 pub type EntityId = u64;
 pub struct Entity {
@@ -16,17 +17,17 @@ pub struct Entity {
 }
 pub struct EntityBuilder<'a> {
     e: Entity,
-    world : &'a World,
+    world: &'a World,
 }
 impl<'a> EntityBuilder<'a> {
-    pub fn new_with_id(id: EntityId, world : &'a World) -> EntityBuilder<'a> {
+    pub fn new_with_id(id: EntityId, world: &'a World) -> EntityBuilder<'a> {
         let e = Entity {
             iid: id,
             components: HashMap::new(),
         };
-        Self { e, world : world}
+        Self { e, world: world }
     }
-    pub fn new(registry: &Registry, world : &'a World) -> EntityBuilder<'a> {
+    pub fn new(registry: &Registry, world: &'a World) -> EntityBuilder<'a> {
         Self::new_with_id(
             std::collections::hash_map::RandomState::new()
                 .build_hasher()

@@ -84,8 +84,7 @@ fn button_system(
             *image = UiImage(asset_server.load(image_path));
         } else if *interaction == Interaction::Clicked {
             match action {
-                MainMenuButtonActions::Connect => {
-                }
+                MainMenuButtonActions::Connect => {}
                 MainMenuButtonActions::Quit => {
                     exit.send(AppExit);
                 }

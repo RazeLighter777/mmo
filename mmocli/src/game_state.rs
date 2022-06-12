@@ -2,5 +2,5 @@
 pub enum GameState {
     MainGame,
     MainMenu,
-    HelpMenu
+    HelpMenu,
 }

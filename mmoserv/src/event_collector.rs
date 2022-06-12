@@ -3,10 +3,13 @@ use std::collections::HashMap;
 use serde_json::map::{OccupiedEntry, VacantEntry};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 
-use crate::{game::Game};
+use crate::game::Game;
 use mmolib;
 pub struct EventCollector {
-    events_by_type: HashMap<mmolib::game_event::EventTypeId, Vec<Box<dyn mmolib::game_event::GameEventInterface>>>,
+    events_by_type: HashMap<
+        mmolib::game_event::EventTypeId,
+        Vec<Box<dyn mmolib::game_event::GameEventInterface>>,
+    >,
 }
 impl EventCollector {
     pub fn new() -> Self {
@@ -33,10 +36,16 @@ impl EventCollector {
         &self,
     ) -> Vec<&mmolib::game_event::GameEvent<T>> {
         let mut res = Vec::new();
-        match self.events_by_type.get(&mmolib::game_event::get_type_id::<T>()) {
+        match self
+            .events_by_type
+            .get(&mmolib::game_event::get_type_id::<T>())
+        {
             Some(ent) => {
                 for i in ent {
-                    match i.as_any().downcast_ref::<mmolib::game_event::GameEvent<T>>() {
+                    match i
+                        .as_any()
+                        .downcast_ref::<mmolib::game_event::GameEvent<T>>()
+                    {
                         Some(cast) => {
                             res.push(cast);
                         }

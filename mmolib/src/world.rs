@@ -8,12 +8,12 @@ use std::sync::RwLock;
 use crate::chunk::{self, Chunk};
 use crate::entity::{self, Entity};
 use crate::game_event;
+use crate::generator;
 use crate::raws::RawTree;
 use crate::registry::Registry;
-use crate::generator;
 //use crate::game;
-use crate::{component};
-use crate::{ pos, raws, registry};
+use crate::component;
+use crate::{pos, raws, registry};
 use serde_json::Value;
 
 pub struct World {
@@ -111,10 +111,19 @@ impl World {
                 let mut q = g.request();
                 q.sort();
                 let stuff = tree.search(&q).clone();
+                let mut entities_for_processing = Vec::new();
+                for id in stuff {
+                    match self.get_entity_by_id(id) {
+                        Some(ent) => {
+                            entities_for_processing.push(ent);
+                        }
+                        None => {}
+                    }
+                }
                 let aworldc = aworld.clone();
                 let aeventc = aresult.clone();
                 s.spawn(move || {
-                    let res = g.generate(aworldc, &stuff);
+                    let res = g.generate(aworldc, &entities_for_processing);
                     aeventc.write().unwrap().extend(res);
                 });
             }
@@ -127,11 +136,11 @@ impl World {
     pub fn get_entity_by_id(&self, iid: entity::EntityId) -> Option<&entity::Entity> {
         self.entities.get(&iid)
     }
-    pub fn get_chunk(&self, chunk_id : chunk::ChunkId) -> Option<&chunk::Chunk> {
+    pub fn get_chunk(&self, chunk_id: chunk::ChunkId) -> Option<&chunk::Chunk> {
         self.chunks.get(&chunk_id)
     }
 
-    pub fn remove_entity(&mut self, iid : entity::EntityId) -> Option<Entity> {
+    pub fn remove_entity(&mut self, iid: entity::EntityId) -> Option<Entity> {
         self.entities.remove(&iid)
     }
 }

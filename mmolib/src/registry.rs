@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
+use crate::hashing;
 use crate::raws::Raw;
 use crate::world::World;
 use crate::{
@@ -9,14 +10,10 @@ use crate::{
     entity, pos,
     raws::RawTree,
 };
-use crate::{hashing};
 use serde_json::Value;
 
-pub type ComponentSerializationFunction = fn(
-    dat: Value,
-    parent: entity::EntityId,
-    world : &World,
-) -> Vec<Box<dyn ComponentInterface>>;
+pub type ComponentSerializationFunction =
+    fn(dat: Value, parent: entity::EntityId, world: &World) -> Vec<Box<dyn ComponentInterface>>;
 pub struct Registry {
     block_types: HashMap<block_type::BlockTypeId, block_type::BlockType>,
     component_types: HashMap<component::ComponentTypeId, ComponentSerializationFunction>,
@@ -38,7 +35,7 @@ impl RegistryBuilder {
     pub fn with_component<T: ComponentDataType + 'static>(mut self) -> Self {
         self.registry.component_types.insert(
             component::get_type_id::<T>(),
-            |dat: Value, parent: entity::EntityId, world : &World| {
+            |dat: Value, parent: entity::EntityId, world: &World| {
                 let x: T = serde_json::from_value(dat).expect(&format!(
                     "Could not deserializae component of type {:?}",
                     std::any::type_name::<T>()
@@ -79,7 +76,7 @@ impl Registry {
         dat: Value,
         entity_id: entity::EntityId,
         type_id: u64,
-        world : &World,
+        world: &World,
     ) -> Vec<Box<dyn ComponentInterface>> {
         match self.component_types.get(&type_id) {
             Some(gen) => gen(dat, entity_id, world),
