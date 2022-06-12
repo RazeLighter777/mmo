@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -17,7 +17,8 @@ use crate::{pos, raws, registry};
 use serde_json::Value;
 
 pub struct World {
-    component_type_id_to_entity_id : HashMap<component::ComponentTypeId, entity::EntityId>,
+    copmonents_by_type_id : HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
+    components : HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
     entities: HashMap<entity::EntityId, entity::Entity>,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
@@ -26,16 +27,16 @@ pub struct World {
 }
 
 struct EntityFilterTree<'a> {
-    filtered: Vec<entity::EntityId>,
+    filtered: HashSet<entity::EntityId>,
     subtrees: HashMap<component::ComponentTypeId, EntityFilterTree<'a>>,
     world: &'a World,
 }
 
 impl<'a> EntityFilterTree<'a> {
     pub fn new(w: &'a World) -> Self {
-        let mut filtered = Vec::new();
+        let mut filtered = HashSet::new();
         for ent in w.entities.keys() {
-            filtered.push(*ent);
+            filtered.insert(*ent);
         }
         Self {
             filtered: filtered,
@@ -50,11 +51,12 @@ impl<'a> EntityFilterTree<'a> {
         let val = match self.subtrees.entry(tid[0]) {
             Vacant(mut entry) => {
                 let mut t = EntityFilterTree {
-                    filtered: self
-                        .filtered
+                    filtered: self.world.copmonents_by_type_id
+                        .get(&tid[0])
+                        .unwrap_or(&HashSet::new())
                         .clone()
                         .into_iter()
-                        .filter(|x| self.world.get_entity_by_id(*x).unwrap().has(tid[0]))
+                        .filter(|x| self.filtered.contains(x))
                         .collect(),
                     subtrees: HashMap::new(),
                     world: self.world,
@@ -65,7 +67,7 @@ impl<'a> EntityFilterTree<'a> {
         };
         self.subtrees.get_mut(&tid[0]).unwrap().only_list(&tid[1..])
     }
-    pub fn search(&self, tid: &[component::ComponentId]) -> &Vec<entity::EntityId> {
+    pub fn search(&self, tid: &[component::ComponentId]) -> &HashSet<entity::EntityId> {
         if tid.is_empty() {
             &self.filtered
         } else {
@@ -77,7 +79,8 @@ impl<'a> EntityFilterTree<'a> {
 impl World {
     pub fn new(world_name: String, raws: raws::RawTree) -> Self {
         Self {
-            component_type_id_to_entity_id : HashMap::new(),
+            copmonents_by_type_id : HashMap::new(),
+            components : HashMap::new(),
             entities: HashMap::new(),
             chunks: HashMap::new(),
             world_id: world_name,
