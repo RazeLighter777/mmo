@@ -5,7 +5,7 @@
 #![deny(warnings)]
 pub mod block_type;
 pub mod chunk;
-pub mod chunk_loader;
+pub mod world_serializer;
 pub mod component;
 pub mod effect;
 pub mod entity;

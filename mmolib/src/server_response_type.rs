@@ -8,5 +8,5 @@ pub enum ServerResponseType {
     AuthFailure {},
     TimedOut {},
     PermissionDenied {},
-    Ticked {},
+    Ticked { world_name : String },
 }

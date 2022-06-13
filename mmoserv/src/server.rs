@@ -241,7 +241,8 @@ impl Server {
                                     }
                                 },
                                 Err(_) => {
-                                    println!("Websocket error in message")
+                                    println!("Connection closed");
+                                    break;
                                 }
                             },
                             None => {

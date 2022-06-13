@@ -86,7 +86,7 @@ impl Game {
                 //send tick message to all connections.
                 let mut gmw2 = gm.write().await;
                 for conn in &gmw2.active_connections {
-                    conn.send(ServerResponseType::Ticked {}).await;
+                    conn.send(ServerResponseType::Ticked { world_name : gmw2.world.get_world_name().to_owned()  }).await;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }

@@ -44,6 +44,8 @@ impl<'a> EntityFilterTree<'a> {
             subtrees: HashMap::new(),
         }
     }
+
+    
     pub fn only_list(&mut self, tid: &[component::ComponentId]) -> &EntityFilterTree {
         if tid.is_empty() {
             return self;
@@ -96,6 +98,8 @@ impl World {
     }
     pub fn get_raws(&self) -> &raws::RawTree {
         &self.raws
+    }pub fn get_world_name(&self) -> &str { 
+        &self.world_id
     }
     pub fn process(
         &self,
@@ -135,8 +139,22 @@ impl World {
         });
         res
     }
-    pub fn spawn(&mut self, e: entity::Entity) {
-        self.entities.insert(e.get_id(), e);
+    pub fn spawn(&mut self, e : (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
+        for comp in e.0 {
+            match self.copmonents_by_type_id.entry(comp.get_type_id()) {
+                Occupied(mut set) => {
+                    set.get_mut().insert(e.1.get_id());
+                },
+                Vacant(ent) => {
+                    let mut hs = HashSet::new();
+                    hs.insert(e.1.get_id());
+                    ent.insert(hs);
+                },
+            }
+            self.components.insert(comp.get_id(), comp);
+        }        
+        self.entities.insert(e.1.get_id(), e.1);
+
     }
     pub fn get_entity_by_id(&self, iid: entity::EntityId) -> Option<&entity::Entity> {
         self.entities.get(&iid)
