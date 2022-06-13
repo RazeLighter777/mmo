@@ -9,11 +9,7 @@ ASSETS
     - Bricks
     - Dirt Path
 - Draw the following monsters, with the requirement that their bodies be the exact size so armor can fit on them EXACTLY. You should draw front, back, left and right, and male and female for each
-    - Elf
     - Human
-    - Goblin (2/3rd the hieght of human)
-    - Dwarf (same size as goblin)
-    - Halfling (same size as goblin)
 LIB
 - Allow world to retrieve components and revise the generator API.
 - Add removal and adding entities / components to world.
