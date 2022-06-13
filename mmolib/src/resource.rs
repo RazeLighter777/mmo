@@ -15,6 +15,7 @@ pub fn spawn_resource_map() -> HashMap<ResourceId, &'static str> {
         (ResourceId::StoneFloor, "images/StoneFloor.png"),
         (ResourceId::BasicStone1, "images/BasicStone1.png"),
         (ResourceId::BasicWater1, "images/BasicWater1.png"),
+        (ResourceId::BasicWater2, "images/BasicWater2.png"),
 
     ].iter().cloned().collect()
 }
