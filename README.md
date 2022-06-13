@@ -1,9 +1,9 @@
 # mmo
-A multithreaded websocket MMO with a MySQL backend
+A multithreaded websocket MMO client and server with a MySQL backend.
+Supports online multiplayer, multiple worlds, chat, and PVP
 # technologies used:
 - MySQL
 - Rust
 - Websockets
-- JavaScript
-- WebGL
 - Asynchronous Programming
+- Bevy 

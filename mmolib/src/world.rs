@@ -24,6 +24,8 @@ pub struct World {
     world_id: String,
     registry: registry::Registry,
     raws: raws::RawTree,
+    positions_of_entities : HashMap<entity::EntityId,pos::Pos>,
+    entities_in_chunk : HashMap<chunk::ChunkId, entity::EntityId>
 }
 
 struct EntityFilterTree<'a> {
@@ -91,6 +93,8 @@ impl World {
                 .with_component::<pos::Pos>()
                 .build(),
             raws: raws,
+            positions_of_entities: HashMap::new(),
+            entities_in_chunk: HashMap::new(),
         }
     }
     pub fn get_registry(&self) -> &registry::Registry {
@@ -161,6 +165,14 @@ impl World {
     }
     pub fn get_chunk(&self, chunk_id: chunk::ChunkId) -> Option<&chunk::Chunk> {
         self.chunks.get(&chunk_id)
+    }
+
+    fn add_entity_to_position_map_if_has_position(&mut self) {
+        
+    }
+
+    pub fn get<T: component::ComponentDataType>(&self, iid: entity::EntityId) -> Option<&component::Component<T>> {
+        None
     }
 
     pub fn remove_entity(&mut self, iid: entity::EntityId) -> Option<Entity> {

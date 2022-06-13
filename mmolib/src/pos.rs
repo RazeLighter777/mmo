@@ -7,9 +7,9 @@ use crate::{
     registry,
 };
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Pos {
-    pub x: f64,
-    pub y: f64,
+    pub x: u64,
+    pub y: u64,
 }
 impl component::ComponentDataType for Pos {}
