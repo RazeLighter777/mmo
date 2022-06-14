@@ -17,15 +17,18 @@ use crate::{pos, raws, registry};
 use serde_json::Value;
 
 pub struct World {
-    copmonents_by_type_id : HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
-    components : HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
+    copmonents_by_type_id: HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
+    components: HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
     entities: HashMap<entity::EntityId, entity::Entity>,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
     registry: registry::Registry,
     raws: raws::RawTree,
-    positions_of_entities : HashMap<entity::EntityId,pos::Pos>,
-    entities_in_chunk : HashMap<chunk::ChunkId, entity::EntityId>
+    positions_of_entities: HashMap<entity::EntityId, pos::Pos>,
+    entities_queued_for_removal: Vec<entity::EntityId>,
+    components_queued_for_removal: Vec<component::ComponentId>,
+    entities_queued_for_deletion: Vec<entity::EntityId>,
+    components_queued_for_deletion: Vec<component::ComponentId>,
 }
 
 struct EntityFilterTree<'a> {
@@ -47,7 +50,6 @@ impl<'a> EntityFilterTree<'a> {
         }
     }
 
-    
     pub fn only_list(&mut self, tid: &[component::ComponentId]) -> &EntityFilterTree {
         if tid.is_empty() {
             return self;
@@ -55,7 +57,9 @@ impl<'a> EntityFilterTree<'a> {
         let val = match self.subtrees.entry(tid[0]) {
             Vacant(mut entry) => {
                 let mut t = EntityFilterTree {
-                    filtered: self.world.copmonents_by_type_id
+                    filtered: self
+                        .world
+                        .copmonents_by_type_id
                         .get(&tid[0])
                         .unwrap_or(&HashSet::new())
                         .clone()
@@ -83,8 +87,8 @@ impl<'a> EntityFilterTree<'a> {
 impl World {
     pub fn new(world_name: String, raws: raws::RawTree) -> Self {
         Self {
-            copmonents_by_type_id : HashMap::new(),
-            components : HashMap::new(),
+            copmonents_by_type_id: HashMap::new(),
+            components: HashMap::new(),
             entities: HashMap::new(),
             chunks: HashMap::new(),
             world_id: world_name,
@@ -94,7 +98,10 @@ impl World {
                 .build(),
             raws: raws,
             positions_of_entities: HashMap::new(),
-            entities_in_chunk: HashMap::new(),
+            entities_queued_for_removal: Vec::new(),
+            components_queued_for_removal: Vec::new(),
+            entities_queued_for_deletion: Vec::new(),
+            components_queued_for_deletion: Vec::new(),
         }
     }
     pub fn get_registry(&self) -> &registry::Registry {
@@ -102,9 +109,11 @@ impl World {
     }
     pub fn get_raws(&self) -> &raws::RawTree {
         &self.raws
-    }pub fn get_world_name(&self) -> &str { 
+    }
+    pub fn get_world_name(&self) -> &str {
         &self.world_id
     }
+    pub fn run_deletions_and_removals(&mut self) {}
     pub fn process(
         &self,
         gens: &Vec<Box<dyn generator::Generator>>,
@@ -143,22 +152,21 @@ impl World {
         });
         res
     }
-    pub fn spawn(&mut self, e : (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
+    pub fn spawn(&mut self, e: (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
         for comp in e.0 {
             match self.copmonents_by_type_id.entry(comp.get_type_id()) {
                 Occupied(mut set) => {
                     set.get_mut().insert(e.1.get_id());
-                },
+                }
                 Vacant(ent) => {
                     let mut hs = HashSet::new();
                     hs.insert(e.1.get_id());
                     ent.insert(hs);
-                },
+                }
             }
             self.components.insert(comp.get_id(), comp);
-        }        
+        }
         self.entities.insert(e.1.get_id(), e.1);
-
     }
     pub fn get_entity_by_id(&self, iid: entity::EntityId) -> Option<&entity::Entity> {
         self.entities.get(&iid)
@@ -167,14 +175,34 @@ impl World {
         self.chunks.get(&chunk_id)
     }
 
-    fn add_entity_to_position_map_if_has_position(&mut self) {
-        
-    }
+    fn add_entity_to_position_map_if_has_position(&mut self) {}
 
-    pub fn get<T: component::ComponentDataType>(&self, iid: entity::EntityId) -> Option<&component::Component<T>> {
-        None
+    pub fn get<T: component::ComponentDataType + 'static>(
+        &self,
+        cid: component::ComponentId,
+    ) -> Option<&component::Component<T>> {
+        match self.components.get(&cid) {
+            Some(component) => component.as_any().downcast_ref::<component::Component<T>>(),
+            None => None,
+        }
     }
-
+    pub fn get_mut<Q: component::ComponentDataType + 'static>(
+        &mut self,
+        cid: component::ComponentId,
+    ) -> Option<&mut component::Component<Q>> {
+        match self.components.get_mut(&cid) {
+            Some(component) => component
+                .as_mutable()
+                .downcast_mut::<component::Component<Q>>(),
+            None => None,
+        }
+    }
+    pub fn get_component_interface(
+        &self,
+        cid: component::ComponentId,
+    ) -> Option<&Box<dyn component::ComponentInterface>> {
+        self.components.get(&cid)
+    }
     pub fn remove_entity(&mut self, iid: entity::EntityId) -> Option<Entity> {
         self.entities.remove(&iid)
     }

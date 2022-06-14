@@ -5,17 +5,17 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
 pub struct Connection {
-    username : String,
+    username: String,
     active_connection: Arc<tokio::sync::RwLock<SplitSink<WebSocketStream<TcpStream>, Message>>>,
 }
 
 impl Connection {
     pub fn new(
         active_connection: Arc<tokio::sync::RwLock<SplitSink<WebSocketStream<TcpStream>, Message>>>,
-        username : &str
+        username: &str,
     ) -> Self {
         Self {
-            username : username.to_owned(),
+            username: username.to_owned(),
             active_connection: active_connection,
         }
     }

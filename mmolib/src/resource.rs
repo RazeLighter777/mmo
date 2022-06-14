@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
-#[derive(Clone,Hash,PartialEq,Eq)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Hash, PartialEq, Eq,Debug, Serialize, Deserialize)]
 pub enum ResourceId {
     StoneFloor,
     BasicStone1,
     BasicWater1,
     BasicWater2,
     Sand1,
-    Grass1
+    Grass1,
 }
-
-
 
 pub fn spawn_resource_map() -> HashMap<ResourceId, &'static str> {
     [
@@ -20,6 +20,8 @@ pub fn spawn_resource_map() -> HashMap<ResourceId, &'static str> {
         (ResourceId::BasicWater2, "images/sprites/BasicWater2.png"),
         (ResourceId::Sand1, "images/sprites/Sand1.png.png"),
         (ResourceId::Grass1, "images/sprites/Grass1.png"),
-
-    ].iter().cloned().collect()
+    ]
+    .iter()
+    .cloned()
+    .collect()
 }

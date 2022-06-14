@@ -18,6 +18,7 @@ pub struct BlockType {
     canonical_name: String,
     descriptive_name: String,
     layer: BlockLayer,
+    resource : resource::ResourceId
 }
 
 impl BlockType {

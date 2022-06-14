@@ -5,7 +5,6 @@
 #![deny(warnings)]
 pub mod block_type;
 pub mod chunk;
-pub mod world_serializer;
 pub mod component;
 pub mod effect;
 pub mod entity;
@@ -20,3 +19,4 @@ pub mod resource;
 pub mod server_request_type;
 pub mod server_response_type;
 pub mod world;
+pub mod world_serializer;
