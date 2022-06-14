@@ -5,6 +5,7 @@
 #![deny(warnings)]
 pub mod block_type;
 pub mod chunk;
+pub mod chunk_generator;
 pub mod component;
 pub mod effect;
 pub mod entity;

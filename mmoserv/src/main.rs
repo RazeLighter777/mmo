@@ -6,7 +6,6 @@
 use clap::Parser;
 use serde_json::Value;
 mod args;
-mod chunk_generator;
 mod complex;
 mod connection;
 mod event_collector;
@@ -15,6 +14,7 @@ mod handler;
 mod server;
 mod server_request;
 mod sql_loaders;
+mod flat_world_generator;
 mod sql_world_serializer;
 use std::time::Duration;
 #[tokio::main]

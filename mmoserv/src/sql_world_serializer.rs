@@ -1,15 +1,16 @@
 use mmolib::{world, world_serializer};
 use sqlx::{MySql, Pool};
 
-use crate::sql_loaders;
+use crate::{sql_loaders, flat_world_generator};
 
 pub struct SqlWorldSerializer {
     conn: Pool<MySql>,
+    generator : Box<dyn mmolib::chunk_generator::ChunkGenerator>
 }
 
 impl SqlWorldSerializer {
     fn new(conn: Pool<MySql>) -> Self {
-        Self { conn: conn }
+        Self { conn: conn, generator : Box::new(flat_world_generator::FlatWorldGenerator::new()) }
     }
 }
 
@@ -55,7 +56,39 @@ impl world_serializer::WorldSerializer for SqlWorldSerializer {
         });
     }
 
-    fn delete_entities(&mut self, entities: Vec<&mmolib::entity::Entity>, world: &world::World) {
-        todo!()
+    fn delete_components(
+        &mut self,
+        components: Vec<mmolib::component::ComponentId>,
+        world: &world::World,
+    ) {
+        futures::executor::block_on(async move {
+            let mut tx = self
+                .conn
+                .begin()
+                .await
+                .expect("Could not create transaction");
+            for component in components {
+                tx = sql_loaders::delete_component(tx, component, world).await;
+            }
+            tx.commit().await.expect("Could not delete components");
+        });
+    }
+
+    fn delete_entities(&mut self, entities: Vec<mmolib::entity::EntityId>, world: &world::World) {
+        futures::executor::block_on(async move {
+            let mut tx = self
+                .conn
+                .begin()
+                .await
+                .expect("Could not create transaction");
+            for entity in entities {
+                tx = sql_loaders::delete_entity(tx, entity, world).await;
+            }
+            tx.commit().await.expect("Could not delete entities");
+        });
+    }
+
+    fn set_generator(&mut self, gen : Box<dyn mmolib::chunk_generator::ChunkGenerator>) {
+        self.generator = gen;
     }
 }

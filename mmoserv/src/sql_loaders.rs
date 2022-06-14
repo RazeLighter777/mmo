@@ -144,3 +144,14 @@ pub async fn check_if_chunk_exists<'a>(
     }
 }
 
+pub async fn delete_component<'a>(
+    mut tx: Transaction<'a, MySql>,
+    component_id: component::ComponentId,
+    world: &'a World,
+) -> Transaction<'a, MySql> {
+    let r = sqlx::query("DELETE FROM components WHERE components.component_id = ?")
+        .bind(component_id)
+        .execute(&mut tx)
+        .await;
+    tx
+}
