@@ -120,6 +120,17 @@ impl World {
     pub fn get_world_name(&self) -> &str {
         &self.world_id
     }
+    pub fn update_position_map(&mut self) {
+        self.positions_of_entities.clear();
+        for component_id in self.copmonents_by_type_id.get(&component::get_type_id::<pos::Pos>()).unwrap()
+        {
+            let pos = self.get::<pos::Pos>(*component_id).unwrap();
+            self.positions_of_entities.insert(*component_id, pos.dat().pos);
+        }
+    }
+    pub fn get_position_of_entity(&self, entity_id : entity::EntityId) -> Option<chunk::Position> {
+        self.positions_of_entities.get(&entity_id).cloned()
+    }
     pub fn run_deletions_and_removals(&mut self) {}
     pub fn process(
         &self,
@@ -222,11 +233,13 @@ impl World {
     pub fn add_entity_to_removal_queue(&mut self, iid: entity::EntityId) {
         self.entities_queued_for_removal.push(iid);
     }
-    pub fn cleanup_deleted_and_removed_entities_and_components(&mut self) {
+    pub async fn cleanup_deleted_and_removed_entities_and_components(&mut self) {
         self.world_serializer
-            .delete_components(self.components_queued_for_deletion.clone());
+            .delete_components(self.components_queued_for_deletion.clone())
+            .await;
         self.world_serializer
-            .delete_entities(self.entities_queued_for_deletion.clone());
+            .delete_entities(self.entities_queued_for_deletion.clone())
+            .await;
         for component in [
             self.components_queued_for_deletion.as_slice(),
             self.components_queued_for_removal.as_slice(),

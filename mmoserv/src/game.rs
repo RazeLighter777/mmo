@@ -93,7 +93,9 @@ impl Game {
                     })
                     .await;
                 }
-                gmw2.world.cleanup_deleted_and_removed_entities_and_components();
+                gmw2.world
+                    .cleanup_deleted_and_removed_entities_and_components()
+                    .await;
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         });

@@ -10,6 +10,7 @@ tokio-tungstenite = "*"
 futures = "0.3"
 mmolib = {path = "../mmolib", version = "*"}
 crossbeam-channel = "0.5.4"
+async-trait = "0.1.56"
 
 [dependencies.clap]
 features = ["derive"]

@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod chunk_generator;
 pub mod component;
 pub mod effect;
+pub mod player;
 pub mod entity;
 pub mod game_event;
 pub mod generator;

@@ -5,7 +5,7 @@ use mmolib::{
     component, entity,
     raws::RawTree,
     registry::Registry,
-    world::World,
+    world::{self, World},
 };
 use serde_json::Value;
 use sqlx::{MySql, Pool, Row, Transaction};
@@ -33,14 +33,53 @@ pub async fn load_entity(
     }
     Some(eb.build())
 }
-pub async fn load_chunk(
+
+pub async fn retreive_all_loaded_chunks_and_entities(
+    conn : & Pool<MySql>,
+    world : &World,
+) ->(
+    Vec<mmolib::chunk::Chunk>,
+    Vec<mmolib::entity::Entity>,
+    Vec<Box<dyn component::ComponentInterface>>,
+) {
+    let mut result: (
+        Vec<mmolib::chunk::Chunk>,
+        Vec<mmolib::entity::Entity>,
+        Vec<Box<dyn component::ComponentInterface>>,
+    ) = (
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    //retrieve all chunks where loaded is true
+    let rows = sqlx::query("SELECT chunk_id, dat FROM chunks WHERE loaded = true")
+        .fetch_all(conn)
+        .await
+        .expect("Error in database when loading chunks previously set as loaded");
+    //load every chunk in using load_chunk_and_entities
+    for row in rows {
+        let chunk_id: chunk::ChunkId = row.try_get("chunk_id").expect("Could not get chunk_id");
+        let chunk = load_chunk_and_entities(conn, chunk_id, world).await.expect("Could not load chunk");
+        let (entities, comps, chunk) = chunk;
+        result.0.push(chunk);
+        result.1.extend(entities);
+        result.2.extend(comps);
+    }
+    result
+}
+
+pub async fn load_chunk_and_entities(
     conn: &Pool<MySql>,
     chunk_id: chunk::ChunkId,
-    world_id: &str,
-) -> Option<chunk::Chunk> {
+    world: &world::World,
+) -> Option<(
+    Vec<entity::Entity>,
+    Vec<Box<dyn component::ComponentInterface>>,
+    chunk::Chunk,
+)> {
     let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
         .bind(chunk_id)
-        .bind(world_id)
+        .bind(world.get_world_name())
         .fetch_optional(conn)
         .await
         .expect("error querying database for chunk");
@@ -51,7 +90,46 @@ pub async fn load_chunk(
                     .expect("chunk format in database invalid"),
             );
             return match c {
-                Ok(chunk) => Some(chunk),
+                Ok(chunk) => {
+                    //change column loaded in chunks to true
+                    sqlx::query("UPDATE chunks SET loaded = true WHERE chunk_id = ?")
+                        .bind(chunk_id)
+                        .execute(conn)
+                        .await
+                        .expect("error updating chunk");
+                    //select entities in chunk
+                    let r = sqlx::query(
+                        "SELECT entity_id, dat, type_id FROM entities WHERE chunk_id = ? AND world_id = ?",
+                    )
+                    .bind(chunk_id)
+                    .bind(world.get_world_name())
+                    .fetch_all(conn)
+                    .await
+                    .expect("error querying database for entities");
+                    //create an array to store boxed components
+                    let mut comps = Vec::new();
+                    let mut entities = Vec::new();
+                    for row in r {
+                        let entity_id = row.try_get("entity_id").expect("Could not get entity_id");
+                        let type_id: component::ComponentTypeId =
+                            row.try_get("type_id").expect("Could not get type_id");
+                        let dat: &str = row.try_get("dat").expect("Could not get data");
+                        let v: Value =
+                            serde_json::from_str(dat).expect("Saved component was not valid json");
+                        let mut eb = entity::EntityBuilder::new_with_id(entity_id, world);
+
+                        for cmp in world
+                            .get_registry()
+                            .generate_component(v, entity_id, type_id, world)
+                        {
+                            eb = eb.add_existing(cmp);
+                        }
+                        let (cps, ent) = eb.build();
+                        comps.extend(cps);
+                        entities.push(ent);
+                    }
+                    Some((entities, comps, chunk))
+                }
                 Err(_) => None,
             };
         }
@@ -78,6 +156,12 @@ pub async fn save_chunk<'a>(
             .execute(&mut conn)
             .await
             .expect("Could not save chunk");
+        //update loaded column in chunks
+        sqlx::query("UPDATE chunks SET loaded = ? WHERE chunk_id = ? AND world_id = ?")
+            .bind(loaded)
+            .bind(chunk_id)
+            .bind(world.get_world_name())
+            .execute(&mut conn).await.expect("Could not update chunk loaded status");
     conn
 }
 pub async fn save_entity<'a>(
@@ -92,7 +176,15 @@ pub async fn save_entity<'a>(
     VALUES (?,?,?)",
     )
     .bind(entity_id)
-    .bind(0)
+    .bind(
+        match world.get_position_of_entity(entity_id) {
+            Some(pos) => {
+                let chunk_id = mmolib::chunk::chunk_id_from_position(pos);
+                Some(chunk_id)
+            },
+            None => None,
+        }
+    )
     .bind(world.get_world_name())
     .execute(&mut tx)
     .await
@@ -129,17 +221,17 @@ pub async fn delete_entity<'a>(
     tx
 }
 pub async fn check_if_chunk_exists<'a>(
-    mut tx: Transaction<'a, MySql>,
+    tx : &Pool<MySql>,
     chunk_id: chunk::ChunkId,
     world: &'a World,
-) -> (bool, Transaction<'a, MySql>) {
+) -> bool {
     match sqlx::query("SELECT chunk_id FROM chunks WHERE chunks.chunk_id = ?")
         .bind(chunk_id)
-        .fetch_one(&mut tx)
+        .fetch_one(tx)
         .await
     {
-        Ok(res) => (true, tx),
-        Err(_) => (false, tx),
+        Ok(res) => true,
+        Err(_) => false,
     }
 }
 

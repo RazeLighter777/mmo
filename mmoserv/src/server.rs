@@ -103,8 +103,8 @@ impl Server {
                 dat TEXT,
                 entity_id BIGINT UNSIGNED, 
                 FOREIGN KEY(entity_id) 
-                    REFERENCES entities(entity_id))
-                    ON DELETE CASCADE",
+                    REFERENCES entities(entity_id)
+                    ON DELETE CASCADE)",
         )
         .execute(&self.pool)
         .await
