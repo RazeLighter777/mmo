@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::block_type;
 use crate::entity;
 
-const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE: usize = 32;
 
 #[derive(Serialize, Deserialize)]
 pub struct Chunk {
@@ -25,6 +25,12 @@ impl Chunk {
     pub fn new(dat: &[u8]) -> Result<Chunk, serde_cbor::Error> {
         let res = serde_cbor::from_slice(dat)?;
         Ok(res)
+    }
+    pub fn new_from_array(blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE]) -> Self {
+        Self {
+            blocks: blocks,
+            entity_position_cache: HashSet::new(),
+        }
     }
     pub fn contains(&self, entity: entity::EntityId) -> bool {
         self.entity_position_cache.contains(&entity)

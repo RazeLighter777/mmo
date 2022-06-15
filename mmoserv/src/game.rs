@@ -16,6 +16,7 @@ use crate::handler;
 use crate::server;
 use crate::server_request;
 use crate::server_request::ServerRequest;
+use crate::sql_world_serializer;
 use mmolib::game_event::GameEvent;
 use mmolib::generator;
 use mmolib::raws::RawTree;
@@ -32,8 +33,9 @@ pub struct Game {
 impl Game {
     pub fn new(path: &str, conn: Pool<MySql>, world_id: String) -> Self {
         let rt = RawTree::new(path);
+        let serializer = Box::new(sql_world_serializer::SqlWorldSerializer::new(conn.clone()));
         Game {
-            world: world::World::new(world_id, rt),
+            world: world::World::new(world_id, rt, serializer),
             generators: Vec::new(),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
@@ -91,6 +93,7 @@ impl Game {
                     })
                     .await;
                 }
+                gmw2.world.cleanup_deleted_and_removed_entities_and_components();
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         });

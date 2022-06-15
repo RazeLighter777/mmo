@@ -120,7 +120,6 @@ pub async fn save_entity<'a>(
 pub async fn delete_entity<'a>(
     mut tx: Transaction<'a, MySql>,
     entity_id: entity::EntityId,
-    world: &'a World,
 ) -> Transaction<'a, MySql> {
     let r = sqlx::query("DELETE FROM entities WHERE entities.entity_id = ?")
         .bind(entity_id)
@@ -147,7 +146,6 @@ pub async fn check_if_chunk_exists<'a>(
 pub async fn delete_component<'a>(
     mut tx: Transaction<'a, MySql>,
     component_id: component::ComponentId,
-    world: &'a World,
 ) -> Transaction<'a, MySql> {
     let r = sqlx::query("DELETE FROM components WHERE components.component_id = ?")
         .bind(component_id)

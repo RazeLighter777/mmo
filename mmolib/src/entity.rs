@@ -66,6 +66,9 @@ impl Entity {
     pub fn has(&self, tid: component::ComponentTypeId) -> bool {
         self.components.contains_key(&tid)
     }
+    pub fn remove(&mut self, tid: component::ComponentTypeId) -> bool {
+        self.components.remove(&tid).is_some()
+    }
     pub fn get_id(&self) -> EntityId {
         self.iid
     }

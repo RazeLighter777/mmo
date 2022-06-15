@@ -7,12 +7,13 @@ use std::sync::RwLock;
 
 use crate::chunk::{self, Chunk};
 use crate::entity::{self, Entity};
-use crate::game_event;
 use crate::generator;
 use crate::raws::RawTree;
 use crate::registry::Registry;
+use crate::{game_event, world_serializer};
 //use crate::game;
 use crate::component;
+use crate::world_serializer::WorldSerializer;
 use crate::{pos, raws, registry};
 use serde_json::Value;
 
@@ -23,8 +24,9 @@ pub struct World {
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
     registry: registry::Registry,
+    world_serializer: Box<dyn WorldSerializer>,
     raws: raws::RawTree,
-    positions_of_entities: HashMap<entity::EntityId, pos::Pos>,
+    positions_of_entities: HashMap<entity::EntityId, chunk::Position>,
     entities_queued_for_removal: Vec<entity::EntityId>,
     components_queued_for_removal: Vec<component::ComponentId>,
     entities_queued_for_deletion: Vec<entity::EntityId>,
@@ -85,7 +87,11 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new(world_name: String, raws: raws::RawTree) -> Self {
+    pub fn new(
+        world_name: String,
+        raws: raws::RawTree,
+        worldserializer: Box<dyn world_serializer::WorldSerializer>,
+    ) -> Self {
         Self {
             copmonents_by_type_id: HashMap::new(),
             components: HashMap::new(),
@@ -97,6 +103,7 @@ impl World {
                 .with_component::<pos::Pos>()
                 .build(),
             raws: raws,
+            world_serializer: worldserializer,
             positions_of_entities: HashMap::new(),
             entities_queued_for_removal: Vec::new(),
             components_queued_for_removal: Vec::new(),
@@ -203,7 +210,73 @@ impl World {
     ) -> Option<&Box<dyn component::ComponentInterface>> {
         self.components.get(&cid)
     }
-    pub fn remove_entity(&mut self, iid: entity::EntityId) -> Option<Entity> {
-        self.entities.remove(&iid)
+    pub fn add_entity_to_deletion_queue(&mut self, iid: entity::EntityId) {
+        self.entities_queued_for_deletion.push(iid);
+    }
+    pub fn add_component_to_deletion_queue(&mut self, iid: component::ComponentId) {
+        self.components_queued_for_deletion.push(iid);
+    }
+    pub fn add_component_to_removal_queue(&mut self, iid: component::ComponentId) {
+        self.components_queued_for_removal.push(iid);
+    }
+    pub fn add_entity_to_removal_queue(&mut self, iid: entity::EntityId) {
+        self.entities_queued_for_removal.push(iid);
+    }
+    pub fn cleanup_deleted_and_removed_entities_and_components(&mut self) {
+        self.world_serializer
+            .delete_components(self.components_queued_for_deletion.clone());
+        self.world_serializer
+            .delete_entities(self.entities_queued_for_deletion.clone());
+        for component in [
+            self.components_queued_for_deletion.as_slice(),
+            self.components_queued_for_removal.as_slice(),
+        ]
+        .concat()
+        {
+            self.remove_component(component);
+        }
+        for entity in [
+            self.entities_queued_for_deletion.as_slice(),
+            self.entities_queued_for_removal.as_slice(),
+        ]
+        .concat()
+        {
+            self.remove_entity(entity);
+        }
+    }
+    fn remove_component(&mut self, iid: component::ComponentId) -> bool {
+        match self.get_component_interface(iid) {
+            Some(x) => {
+                let tid = x.get_type_id();
+                let iid = x.get_id();
+                let pid = x.get_parent();
+                self.copmonents_by_type_id
+                    .get_mut(&tid)
+                    .unwrap()
+                    .remove(&iid)
+                    && self.entities.get_mut(&pid).unwrap().remove(tid)
+                    && self.components.remove(&iid).is_some()
+            }
+            None => false,
+        }
+    }
+    fn remove_entity(&mut self, iid: entity::EntityId) -> bool {
+        match self.entities.get(&iid) {
+            Some(entity) => {
+                let iid = entity.get_id();
+                for component in entity.get_component_ids() {
+                    self.remove_component(component);
+                }
+                let pos = self.positions_of_entities.remove(&iid).unwrap();
+                match self.chunks.get_mut(&chunk::chunk_id_from_position(pos)) {
+                    Some(chunk) => {
+                        chunk.remove(iid);
+                    }
+                    None => {}
+                }
+                self.entities.remove(&iid).is_some()
+            }
+            None => false,
+        }
     }
 }
