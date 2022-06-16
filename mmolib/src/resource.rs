@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ResourceId {
     StoneFloor,
-    BasicStone1,
-    BasicWater1,
-    BasicWater2,
-    Sand1,
     Grass1,
+    Dirt1,
+    Acid1,
+    Acid2,
+    
 }
 
 #[derive(Clone)]
