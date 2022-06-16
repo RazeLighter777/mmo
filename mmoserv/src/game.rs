@@ -93,6 +93,7 @@ impl Game {
                     })
                     .await;
                 }
+                gmw2.world.unload_and_load_chunks().await;
                 gmw2.world
                     .cleanup_deleted_and_removed_entities_and_components()
                     .await;

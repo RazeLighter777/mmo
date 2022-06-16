@@ -41,6 +41,9 @@ impl Chunk {
     pub fn remove(&mut self, entity: entity::EntityId) -> bool {
         self.entity_position_cache.remove(&entity)
     }
+    pub fn get_entities(&self) -> Vec<entity::EntityId> {
+        self.entity_position_cache.iter().cloned().collect()
+    }
 }
 
 pub type ChunkId = u64;
@@ -58,6 +61,12 @@ pub fn convert_to_chunk_relative_position(position: Position) -> Position {
 }
 pub fn position_of_chunk(chunk_id: ChunkId) -> Position {
     ((chunk_id >> 32).try_into().unwrap(), chunk_id as u32)
+}
+
+pub fn distance_between_position(a: Position, b: Position) -> f32 {
+    let (x1, y1) = a;
+    let (x2, y2) = b;
+    ((x1 - x2) as f32).hypot((y1 - y2) as f32)
 }
 
 #[test]

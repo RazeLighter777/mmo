@@ -19,7 +19,7 @@ impl SqlWorldSerializer {
 #[async_trait]
 impl world_serializer::WorldSerializer for SqlWorldSerializer {
     async fn retrieve_chunk_and_entities(
-        &mut self,
+        &self,
         chunk_id: mmolib::chunk::ChunkId,
         world: &world::World,
     ) -> (
@@ -30,23 +30,22 @@ impl world_serializer::WorldSerializer for SqlWorldSerializer {
         //check if the chunk is already in the database
         if sql_loaders::check_if_chunk_exists(&self.conn, chunk_id, world).await {
             //call load_chunk_and_entities
-        let (entities, comps, chunk) =
-            sql_loaders::load_chunk_and_entities(&self.conn, chunk_id, world)
-                .await
-                .expect("Chunk does not exist in database");
-        //return the result
-        (chunk, entities, comps)
+            let (entities, comps, chunk) =
+                sql_loaders::load_chunk_and_entities(&self.conn, chunk_id, world)
+                    .await
+                    .expect("Chunk does not exist in database");
+            //return the result
+            (chunk, entities, comps)
         } else {
             //generate the chunk
             let chunk = self.generator.generate_chunk(chunk_id, world);
             //in future, run chunk pregeneration
             (chunk, vec![], vec![])
         }
-        
     }
 
     async fn save_chunks(
-        &mut self,
+        &self,
         chunks: Vec<(mmolib::chunk::ChunkId, &mmolib::chunk::Chunk)>,
         world: &world::World,
         loaded: bool,
@@ -76,7 +75,7 @@ impl world_serializer::WorldSerializer for SqlWorldSerializer {
 
     async fn delete_components(&mut self, components: Vec<mmolib::component::ComponentId>) {
         //create a transaction
-        let mut tx  = self
+        let mut tx = self
             .conn
             .begin()
             .await

@@ -10,7 +10,7 @@ pub trait WorldSerializer: Send + Sync {
      * If the chunk is not found in the database, it will be generated and saved to the database.
      */
     async fn retrieve_chunk_and_entities(
-        &mut self,
+        &self,
         chunk_id: chunk::ChunkId,
         world: &world::World,
     ) -> (
@@ -19,7 +19,7 @@ pub trait WorldSerializer: Send + Sync {
         Vec<Box<dyn component::ComponentInterface>>,
     );
     async fn save_chunks(
-        &mut self,
+        &self,
         chunk: Vec<(chunk::ChunkId, &chunk::Chunk)>,
         world: &world::World,
         loaded: bool,

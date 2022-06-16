@@ -7,12 +7,13 @@ use std::sync::RwLock;
 
 use crate::chunk::{self, Chunk};
 use crate::entity::{self, Entity};
-use crate::generator;
+use crate::pos::Pos;
 use crate::raws::RawTree;
 use crate::registry::Registry;
 use crate::{game_event, world_serializer};
+use crate::{generator, player};
 //use crate::game;
-use crate::component;
+use crate::component::{self, ComponentInterface};
 use crate::world_serializer::WorldSerializer;
 use crate::{pos, raws, registry};
 use serde_json::Value;
@@ -21,6 +22,7 @@ pub struct World {
     copmonents_by_type_id: HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
     components: HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
     entities: HashMap<entity::EntityId, entity::Entity>,
+    render_distance: i64,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
     registry: registry::Registry,
@@ -101,6 +103,7 @@ impl World {
             registry: registry::RegistryBuilder::new()
                 .load_block_raws(&["block".to_owned()], &raws)
                 .with_component::<pos::Pos>()
+                .with_component::<player::Player>()
                 .build(),
             raws: raws,
             world_serializer: worldserializer,
@@ -109,6 +112,7 @@ impl World {
             components_queued_for_removal: Vec::new(),
             entities_queued_for_deletion: Vec::new(),
             components_queued_for_deletion: Vec::new(),
+            render_distance: 3,
         }
     }
     pub fn get_registry(&self) -> &registry::Registry {
@@ -122,13 +126,17 @@ impl World {
     }
     pub fn update_position_map(&mut self) {
         self.positions_of_entities.clear();
-        for component_id in self.copmonents_by_type_id.get(&component::get_type_id::<pos::Pos>()).unwrap()
+        for component_id in self
+            .copmonents_by_type_id
+            .get(&component::get_type_id::<pos::Pos>())
+            .unwrap()
         {
             let pos = self.get::<pos::Pos>(*component_id).unwrap();
-            self.positions_of_entities.insert(*component_id, pos.dat().pos);
+            self.positions_of_entities
+                .insert(*component_id, pos.dat().pos);
         }
     }
-    pub fn get_position_of_entity(&self, entity_id : entity::EntityId) -> Option<chunk::Position> {
+    pub fn get_position_of_entity(&self, entity_id: entity::EntityId) -> Option<chunk::Position> {
         self.positions_of_entities.get(&entity_id).cloned()
     }
     pub fn run_deletions_and_removals(&mut self) {}
@@ -191,6 +199,139 @@ impl World {
     }
     pub fn get_chunk(&self, chunk_id: chunk::ChunkId) -> Option<&chunk::Chunk> {
         self.chunks.get(&chunk_id)
+    }
+    pub fn get_all_components_of_type(
+        &self,
+        type_id: component::ComponentTypeId,
+    ) -> Vec<component::ComponentId> {
+        self.copmonents_by_type_id
+            .get(&type_id)
+            .unwrap_or(&HashSet::new())
+            .clone()
+            .into_iter()
+            .collect()
+    }
+    pub async fn unload_and_load_chunks(&mut self) {
+        //create an empty list of chunk positions
+        let mut player_positions: HashSet<chunk::Position> = HashSet::new();
+        //get all player components
+        let players = self
+            .get_all_components_of_type(component::get_type_id::<player::Player>())
+            .iter()
+            .map(|id| self.get::<player::Player>(*id).unwrap())
+            .collect::<Vec<_>>();
+        for player in players {
+            let parent = player.get_parent();
+            let position_component = self.get::<Pos>(parent).expect(
+                "Player did not have a position, which is a necessary component of players",
+            );
+            player_positions.insert(position_component.dat().pos);
+        }
+        //find all chunks that are within render distance of the player
+        let mut chunks_that_should_be_loaded: Vec<chunk::ChunkId> = Vec::new();
+        for position in player_positions {
+            for x in -self.render_distance..self.render_distance {
+                for y in -self.render_distance..self.render_distance {
+                    let mut posx: i64 = 0;
+                    let mut posy: i64 = 0;
+                    if x > 0 {
+                        posx.wrapping_add(x * (chunk::CHUNK_SIZE as i64));
+                    } else {
+                        posx.wrapping_sub(x * (chunk::CHUNK_SIZE as i64));
+                    }
+                    if y > 0 {
+                        posy.wrapping_add(y * (chunk::CHUNK_SIZE as i64));
+                    } else {
+                        posy.wrapping_sub(y * (chunk::CHUNK_SIZE as i64));
+                    }
+                    chunks_that_should_be_loaded
+                        .push(chunk::chunk_id_from_position((posx as u32, posy as u32)));
+                }
+            }
+        }
+        for (chunk_id, chunk) in &self.chunks {
+            self.world_serializer
+                .save_entities(
+                    chunk
+                        .get_entities()
+                        .iter()
+                        .map(|id| self.get_entity_by_id(*id).unwrap())
+                        .collect(),
+                    self,
+                )
+                .await;
+        }
+        for chunk in self
+            .chunks
+            .keys()
+            .map(|x| *x)
+            .collect::<HashSet<_>>()
+            .union(
+                &chunks_that_should_be_loaded
+                    .iter()
+                    .map(|x| *x)
+                    .collect::<HashSet<_>>(),
+            )
+        {
+            match (
+                self.chunks.contains_key(chunk),
+                chunks_that_should_be_loaded.contains(chunk),
+            ) {
+                (true, true) => {
+                    //do nothing
+                }
+                (true, false) => {
+                    //save and unload the chunk
+                    self.world_serializer
+                        .save_entities(
+                            self.chunks
+                                .get(chunk)
+                                .unwrap()
+                                .get_entities()
+                                .iter()
+                                .map(|id| self.get_entity_by_id(*id).unwrap())
+                                .collect(),
+                            self,
+                        )
+                        .await;
+                    self.world_serializer
+                        .save_chunks(
+                            vec![(*chunk, self.chunks.get(&chunk).unwrap())],
+                            self,
+                            false,
+                        )
+                        .await;
+                }
+                (false, true) => {
+                    //load the chunk with its entities and components
+                    let (new_chunk, entities, components) = self
+                        .world_serializer
+                        .retrieve_chunk_and_entities(*chunk, self)
+                        .await;
+
+                    self.chunks.insert(*chunk, new_chunk);
+                    self.entities
+                        .extend(entities.into_iter().map(|x| (x.get_id(), x)));
+                    self.components
+                        .extend(components.into_iter().map(|x| (x.get_id(), x)));
+                }
+                (_, false) => {
+                    //unload every entity in the chunk
+                    for entity in self.chunks.get(chunk).unwrap().get_entities() {
+                        self.add_entity_to_removal_queue(entity);
+                    }
+                    self.chunks.remove(chunk);
+                }
+            }
+        }
+        //let mut chunks_to_unload = Vec::new();
+        self.chunks.retain(|id, chunk| {
+            if chunks_that_should_be_loaded.contains(id) {
+                true
+            } else {
+                false
+            }
+        });
     }
 
     fn add_entity_to_position_map_if_has_position(&mut self) {}
