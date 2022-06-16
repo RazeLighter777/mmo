@@ -32,4 +32,7 @@ impl Connection {
         ))
         .await;
     }
+    pub async fn is_closed(&self) -> bool {
+        false
+    }
 }

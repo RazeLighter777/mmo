@@ -20,3 +20,6 @@ FRONTEND
 - Allow sending chat messages between users and display it on the screen
 BACKEND
 - Add support for recieving chat messages
+- Add support for saving and loading worlds
+- Allow users to leave a game
+ 

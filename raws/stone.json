@@ -1,6 +1,6 @@
 {
-    "path" : "block/stone",
-    "canonical_name" : "stone",
+    "path" : "block/stonefloor",
+    "canonical_name" : "stonefloor",
     "descriptive_name" : "A grey stone floor",
     "layer" : "Ground",
     "resource" : "StoneFloor"

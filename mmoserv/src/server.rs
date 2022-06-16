@@ -2,6 +2,7 @@ use crate::args;
 use crate::game;
 use crate::server_request::ServerClaims;
 use crate::server_request::ServerRequest;
+use crate::sql_loaders;
 use futures::task::noop_waker;
 use mmolib::server_request_type::ServerRequestType;
 use mmolib::server_response_type::ServerResponseType;
@@ -256,24 +257,36 @@ impl Server {
             }
         }
     }
-    pub async fn create_world(&mut self, world_name: &str) {
-        let g = game::Game::new(
-            "C:\\Users\\justin\\Code\\mmo\\raws",
-            self.pool.clone(),
-            world_name.to_owned(),
-        );
-        let gmrwlock = Arc::new(RwLock::new(g));
-        let gmrwlock2 = gmrwlock.clone();
-        game::Game::start_game(gmrwlock).await;
-        self.game.insert(String::from(world_name), gmrwlock2);
+    pub async fn create_world(&mut self, world_name: &str) -> bool {
+        if sql_loaders::create_world(self.pool.clone(), world_name).await {
+            let g = game::Game::new(
+                "C:\\Users\\justin\\Code\\mmo\\raws",
+                self.pool.clone(),
+                world_name.to_owned(),
+            );
+            //insert the world into the database
+            let gmrwlock = Arc::new(RwLock::new(g));
+            let gmrwlock2 = gmrwlock.clone();
+            game::Game::start_game(gmrwlock).await;
+            self.game.insert(String::from(world_name), gmrwlock2);
+            true
+        } else {
+
+            false
+        }
     }
     async fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
         match &request.get_dat() {
             ServerRequestType::CreateGame { world_name } => {
                 if request.is_admin() {
                     let mut guard = sv.write().await;
-                    guard.create_world(&world_name).await;
-                    request.handle(&ServerResponseType::Ok {}).await;
+                    if guard.create_world(&world_name).await {
+                        request.handle(&ServerResponseType::Ok {}).await;
+                    } else {
+                        request.handle(&ServerResponseType::Error {
+                            message: "World already exists",
+                        }).await;
+                    }
                 } else {
                     request
                         .handle(&ServerResponseType::PermissionDenied {})

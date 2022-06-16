@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
+use crate::component::ComponentTypeId;
 use crate::hashing;
 use crate::raws::Raw;
 use crate::world::World;
@@ -75,7 +76,7 @@ impl Registry {
         &self,
         dat: Value,
         entity_id: entity::EntityId,
-        type_id: u64,
+        type_id: ComponentTypeId,
         world: &World,
     ) -> Vec<Box<dyn ComponentInterface>> {
         match self.component_types.get(&type_id) {

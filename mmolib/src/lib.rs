@@ -3,6 +3,7 @@
 #![feature(scoped_threads)]
 #![allow(unused)]
 #![deny(warnings)]
+#![feature(future_join, future_poll_fn)]
 pub mod block_type;
 pub mod chunk;
 pub mod chunk_generator;

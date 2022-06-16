@@ -11,7 +11,11 @@ pub enum ResourceId {
     Acid2,
     
 }
-
+pub enum ResourceType<'a> {
+    StaticImage(&'static str),
+    Animation(&'a [&'static str]),
+    Sound(&'static str, f32),
+}
 pub fn spawn_resource_map() -> HashMap<ResourceId, &'static str> {
     [
         (ResourceId::StoneFloor, "images/sprite/StoneFloor.png"),

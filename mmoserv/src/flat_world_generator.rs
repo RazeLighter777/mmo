@@ -15,7 +15,7 @@ impl mmolib::chunk_generator::ChunkGenerator for FlatWorldGenerator {
     ) -> mmolib::chunk::Chunk {
         let mut blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE] = [[world
             .get_registry()
-            .get_block_type("block/stonefloor")
+            .get_block_type("stonefloor")
             .expect("could not find stone floor")
             .get_id();
             32]; 32];

@@ -10,18 +10,28 @@ use mmolib::{
 use serde_json::Value;
 use sqlx::{MySql, Pool, Row, Transaction};
 
+
+
+pub async fn create_world(conn: Pool<MySql>, world_id: &str) -> bool {
+    let r = sqlx::query("INSERT INTO worlds (world_id) VALUES (?)")
+        .bind(world_id)
+        .execute(&conn)
+        .await.is_ok();
+    r
+}
+
 pub async fn load_entity(
     mut conn: Transaction<'_, MySql>,
     entity_id: entity::EntityId,
     world: &mut World,
 ) -> Option<(Vec<Box<dyn component::ComponentInterface>>, entity::Entity)> {
     let r = sqlx::query("SELECT dat, type_id FROM components JOIN entities ON components.entity_id = entities.entity_id WHERE components.entity_id = ?")
-    .bind(entity_id)
+    .bind(entity_id.0)
     .fetch_all(&mut conn).await.expect("Error in database when loading entity");
     let mut eb = entity::EntityBuilder::new_with_id(entity_id, world);
     for row in r {
         let type_id: component::ComponentTypeId =
-            row.try_get("type_id").expect("Could not get type_id");
+            component::ComponentTypeId((row.try_get("type_id").expect("Could not get type_id")));
         let dat: &str = row.try_get("dat").expect("Could not get data");
         let v: Value = serde_json::from_str(dat).expect("Saved component was not valid json");
         for cmp in world
@@ -108,9 +118,9 @@ pub async fn load_chunk_and_entities(
                     let mut comps = Vec::new();
                     let mut entities = Vec::new();
                     for row in r {
-                        let entity_id = row.try_get("entity_id").expect("Could not get entity_id");
+                        let entity_id = entity::EntityId((row.try_get("entity_id").expect("Could not get entity_id")));
                         let type_id: component::ComponentTypeId =
-                            row.try_get("type_id").expect("Could not get type_id");
+                            component::ComponentTypeId((row.try_get("type_id").expect("Could not get type_id")));
                         let dat: &str = row.try_get("dat").expect("Could not get data");
                         let v: Value =
                             serde_json::from_str(dat).expect("Saved component was not valid json");
@@ -146,7 +156,7 @@ pub async fn save_chunk<'a>(
     loaded: bool,
 ) -> Transaction<'a, MySql> {
     let r =
-        sqlx::query("REPLACE INTO chunks (chunk_id, world_id, chunk_dat, loaded) VALUES (?,?,?,?)")
+        sqlx::query("INSERT INTO chunks (chunk_id, world_id, chunk_dat, loaded) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE chunk_id=chunk_id")
             .bind(chunk_id)
             .bind(world.get_world_name())
             .bind(serde_cbor::to_vec(chunk).expect("Could not serialize chunk as cbor"))
@@ -172,10 +182,10 @@ pub async fn save_entity<'a>(
     // Acquire a new connection and immediately begin a transaction
 
     let r = sqlx::query(
-        "REPLACE INTO entities (entity_id, chunk_id, world_id)  
-    VALUES (?,?,?)",
+        "INSERT INTO entities (entity_id, chunk_id, world_id)  
+    VALUES (?,?,?) ON DUPLICATE KEY UPDATE entity_id=entity_id",
     )
-    .bind(entity_id)
+    .bind(entity_id.0)
     .bind(match world.get_position_of_entity(entity_id) {
         Some(pos) => {
             //get the position component from the entity_id
@@ -214,15 +224,15 @@ pub async fn save_entity<'a>(
     let ids = entity_ref.get_component_ids();
     for id in ids {
         let comp = world
-            .get_component_interface(entity_ref.get_assured(id))
+            .get_component_interface(id)
             .expect("Could not unwrap component when saving entity");
         sqlx::query(
-            "REPLACE INTO components (component_id, type_id, dat, entity_id) VALUES (?,?,?,?)",
+            "INSERT INTO components (component_id, type_id, dat, entity_id) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE component_id=component_id",
         )
-        .bind(id)
-        .bind(comp.get_type_id())
+        .bind(id.0)
+        .bind(comp.get_type_id().0)
         .bind(comp.get_json().to_string())
-        .bind(entity_id)
+        .bind(entity_id.0)
         .execute(&mut tx)
         .await;
     }
@@ -233,7 +243,7 @@ pub async fn delete_entity<'a>(
     entity_id: entity::EntityId,
 ) -> Transaction<'a, MySql> {
     let r = sqlx::query("DELETE FROM entities WHERE entities.entity_id = ?")
-        .bind(entity_id)
+        .bind(entity_id.0)
         .execute(&mut tx)
         .await
         .expect("Could not delete entity from table");
@@ -259,7 +269,7 @@ pub async fn delete_component<'a>(
     component_id: component::ComponentId,
 ) -> Transaction<'a, MySql> {
     let r = sqlx::query("DELETE FROM components WHERE components.component_id = ?")
-        .bind(component_id)
+        .bind(component_id.0)
         .execute(&mut tx)
         .await;
     tx

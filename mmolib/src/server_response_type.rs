@@ -8,5 +8,6 @@ pub enum ServerResponseType {
     AuthFailure {},
     TimedOut {},
     PermissionDenied {},
+    Error { message: &'static str },
     Ticked { world_name: String },
 }
