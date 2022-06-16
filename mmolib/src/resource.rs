@@ -7,8 +7,7 @@ pub enum ResourceId {
     StoneFloor,
     Grass1,
     Dirt1,
-    Acid1,
-    Acid2,
+    AcidAnimation
     
 }
 
@@ -21,11 +20,9 @@ pub enum ResourceType<'a> {
 pub fn spawn_resource_map() -> HashMap<ResourceId,ResourceType<'static>> {
     [
         (ResourceId::StoneFloor, ResourceType::StaticImage("images/sprite/StoneFloor.png")),
-        (ResourceId::BasicStone1, ResourceType::StaticImage("images/sprite/BasicStone1.png")),
-        (ResourceId::BasicWater1, ResourceType::StaticImage("images/sprite/BasicWater1.png")),
-        (ResourceId::BasicWater2, ResourceType::StaticImage("images/sprite/BasicWater2.png")),
-        (ResourceId::Sand1, ResourceType::StaticImage("images/sprite/Sand1.png")),
         (ResourceId::Grass1, ResourceType::StaticImage("images/sprite/Grass1.png")),
+        (ResourceId::AcidAnimation, ResourceType::Animation(&["images/sprite/Acid1.png", "images/sprite/Acid2.png"])),
+
         
     ]
     .iter()
