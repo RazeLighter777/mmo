@@ -4,13 +4,17 @@ use std::{
     sync::Arc,
 };
 
+use serde::Deserialize;
+
 //use crate::world::World;
 use crate::{
     component::{self, ComponentDataType},
     registry::Registry,
     world::World,
 };
-pub type EntityId = u64;
+
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize)]
+pub struct EntityId(pub u64);
 pub struct Entity {
     iid: EntityId,
     components: HashMap<component::ComponentTypeId, component::ComponentId>,
@@ -33,10 +37,11 @@ impl<'a> EntityBuilder<'a> {
         }
     }
     pub fn new(registry: &Registry, world: &'a World) -> EntityBuilder<'a> {
+        let e = EntityId((std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish()));
         Self::new_with_id(
-            std::collections::hash_map::RandomState::new()
-                .build_hasher()
-                .finish(),
+            e,
             world,
         )
     }

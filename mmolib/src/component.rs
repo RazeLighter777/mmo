@@ -1,14 +1,18 @@
-pub type ComponentId = u64;
-pub type ComponentTypeId = u64;
+
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize,PartialOrd, Ord)]
+pub struct ComponentId(pub u64);
+
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, PartialOrd, Ord)]
+pub struct ComponentTypeId(pub u64);
 use crate::{entity::EntityId, hashing, registry, world::World};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Serialize, Deserialize};
 use serde_json::Value;
 use std::{
     hash::{BuildHasher, Hasher},
     sync::Arc,
 };
-pub const fn get_type_id<DataType: 'static + ComponentDataType>() -> u64 {
-    hashing::string_hash(std::any::type_name::<DataType>())
+pub const fn get_type_id<DataType: 'static + ComponentDataType>() -> ComponentTypeId {
+    ComponentTypeId((hashing::string_hash(std::any::type_name::<DataType>())))
 }
 pub trait ComponentDataType: Serialize + DeserializeOwned + Sync + Send {
     fn post_deserialization(&mut self, world: &World) -> Vec<Box<dyn ComponentInterface>> {
@@ -62,9 +66,9 @@ impl<T: ComponentDataType + 'static> Component<T> {
     pub fn new(mut data: T, parent: EntityId, world: &World) -> Vec<Box<dyn ComponentInterface>> {
         let mut res = data.post_deserialization(world);
         let main = Self {
-            iid: std::collections::hash_map::RandomState::new()
+            iid: ComponentId((std::collections::hash_map::RandomState::new()
                 .build_hasher()
-                .finish(),
+                .finish())),
             pid: parent,
             tid: get_type_id::<T>(),
             data: data,

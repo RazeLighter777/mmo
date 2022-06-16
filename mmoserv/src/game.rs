@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use mmolib::entity;
 use mmolib::server_response_type::ServerResponseType;
 use serde_json::json;
 use sqlx::MySql;
@@ -68,6 +69,18 @@ impl Game {
     }
     pub async fn start_game(gm: Arc<RwLock<Self>>) {
         task::spawn(async move {
+            let mut gmw1 = gm.write().await;
+            let eb = entity::EntityBuilder::new(gmw1.world.get_registry(), &gmw1.world)
+                .add(mmolib::player::Player {
+                    username: "admin".to_string(),
+                })
+                .add(mmolib::pos::Pos {
+                    pos: (100, 100),
+                    load_with_chunk: false,
+                })
+                .build();
+            gmw1.world.spawn(eb);
+            drop(gmw1);
             loop {
                 //borrow as writable
                 let mut gmw1 = gm.write().await;
@@ -97,6 +110,7 @@ impl Game {
                 gmw2.world
                     .cleanup_deleted_and_removed_entities_and_components()
                     .await;
+                gmw2.world.save().await;
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         });

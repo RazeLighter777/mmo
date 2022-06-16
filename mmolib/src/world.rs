@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
+use std::future::join;
 use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -54,7 +55,7 @@ impl<'a> EntityFilterTree<'a> {
         }
     }
 
-    pub fn only_list(&mut self, tid: &[component::ComponentId]) -> &EntityFilterTree {
+    pub fn only_list(&mut self, tid: &[component::ComponentTypeId]) -> &EntityFilterTree {
         if tid.is_empty() {
             return self;
         }
@@ -68,7 +69,8 @@ impl<'a> EntityFilterTree<'a> {
                         .unwrap_or(&HashSet::new())
                         .clone()
                         .into_iter()
-                        .filter(|x| self.filtered.contains(x))
+                        .filter(|x| self.filtered.contains(&self.world.get_component_interface(*x).unwrap().get_parent())  )
+                        .map(|x| self.world.get_component_parent_id(x))
                         .collect(),
                     subtrees: HashMap::new(),
                     world: self.world,
@@ -79,7 +81,7 @@ impl<'a> EntityFilterTree<'a> {
         };
         self.subtrees.get_mut(&tid[0]).unwrap().only_list(&tid[1..])
     }
-    pub fn search(&self, tid: &[component::ComponentId]) -> &HashSet<entity::EntityId> {
+    pub fn search(&self, tid: &[component::ComponentTypeId]) -> &HashSet<entity::EntityId> {
         if tid.is_empty() {
             &self.filtered
         } else {
@@ -124,17 +126,20 @@ impl World {
     pub fn get_world_name(&self) -> &str {
         &self.world_id
     }
+    pub fn get_component_parent_id(&self, id: component::ComponentId) -> entity::EntityId {
+        self.get_component_interface(id).unwrap().get_parent()
+    }
     pub fn update_position_map(&mut self) {
-        self.positions_of_entities.clear();
-        for component_id in self
-            .copmonents_by_type_id
-            .get(&component::get_type_id::<pos::Pos>())
-            .unwrap()
-        {
-            let pos = self.get::<pos::Pos>(*component_id).unwrap();
-            self.positions_of_entities
-                .insert(*component_id, pos.dat().pos);
-        }
+        // self.positions_of_entities.clear();
+        // for component_id in self
+        //     .copmonents_by_type_id
+        //     .get(&component::get_type_id::<pos::Pos>())
+        //     .unwrap()
+        // {
+        //     let pos = self.get::<pos::Pos>(*component_id).unwrap();
+        //     self.positions_of_entities
+        //         .insert(*component_id, pos.dat().pos);
+        // }
     }
     pub fn get_position_of_entity(&self, entity_id: entity::EntityId) -> Option<chunk::Position> {
         self.positions_of_entities.get(&entity_id).cloned()
@@ -178,15 +183,39 @@ impl World {
         });
         res
     }
+    pub fn spawn_multiple(
+        &mut self,
+        e: (
+            Vec<Box<dyn component::ComponentInterface>>,
+            Vec<entity::Entity>,
+        ),
+    ) {
+        for comp in e.0 {
+            match self.copmonents_by_type_id.entry(comp.get_type_id()) {
+                Occupied(mut set) => {
+                    set.get_mut().insert(comp.get_id());
+                }
+                Vacant(ent) => {
+                    let mut hs = HashSet::new();
+                    hs.insert(comp.get_id());
+                    ent.insert(hs);
+                }
+            }
+            self.components.insert(comp.get_id(), comp);
+        }
+        for entity in e.1 {
+            self.entities.insert(entity.get_id(), entity);
+        }
+    }
     pub fn spawn(&mut self, e: (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
         for comp in e.0 {
             match self.copmonents_by_type_id.entry(comp.get_type_id()) {
                 Occupied(mut set) => {
-                    set.get_mut().insert(e.1.get_id());
+                    set.get_mut().insert(comp.get_id());
                 }
                 Vacant(ent) => {
                     let mut hs = HashSet::new();
-                    hs.insert(e.1.get_id());
+                    hs.insert(comp.get_id());
                     ent.insert(hs);
                 }
             }
@@ -212,43 +241,7 @@ impl World {
             .collect()
     }
     pub async fn unload_and_load_chunks(&mut self) {
-        //create an empty list of chunk positions
-        let mut player_positions: HashSet<chunk::Position> = HashSet::new();
-        //get all player components
-        let players = self
-            .get_all_components_of_type(component::get_type_id::<player::Player>())
-            .iter()
-            .map(|id| self.get::<player::Player>(*id).unwrap())
-            .collect::<Vec<_>>();
-        for player in players {
-            let parent = player.get_parent();
-            let position_component = self.get::<Pos>(parent).expect(
-                "Player did not have a position, which is a necessary component of players",
-            );
-            player_positions.insert(position_component.dat().pos);
-        }
-        //find all chunks that are within render distance of the player
-        let mut chunks_that_should_be_loaded: Vec<chunk::ChunkId> = Vec::new();
-        for position in player_positions {
-            for x in -self.render_distance..self.render_distance {
-                for y in -self.render_distance..self.render_distance {
-                    let mut posx: i64 = 0;
-                    let mut posy: i64 = 0;
-                    if x > 0 {
-                        posx.wrapping_add(x * (chunk::CHUNK_SIZE as i64));
-                    } else {
-                        posx.wrapping_sub(x * (chunk::CHUNK_SIZE as i64));
-                    }
-                    if y > 0 {
-                        posy.wrapping_add(y * (chunk::CHUNK_SIZE as i64));
-                    } else {
-                        posy.wrapping_sub(y * (chunk::CHUNK_SIZE as i64));
-                    }
-                    chunks_that_should_be_loaded
-                        .push(chunk::chunk_id_from_position((posx as u32, posy as u32)));
-                }
-            }
-        }
+        let chunks_that_should_be_loaded = self.get_list_of_chunk_ids_close_to_players();
         for (chunk_id, chunk) in &self.chunks {
             self.world_serializer
                 .save_entities(
@@ -310,10 +303,7 @@ impl World {
                         .await;
 
                     self.chunks.insert(*chunk, new_chunk);
-                    self.entities
-                        .extend(entities.into_iter().map(|x| (x.get_id(), x)));
-                    self.components
-                        .extend(components.into_iter().map(|x| (x.get_id(), x)));
+                    self.spawn_multiple((components, entities));
                 }
                 (_, false) => {
                     //unload every entity in the chunk
@@ -334,14 +324,97 @@ impl World {
         });
     }
 
+    /**
+     * Saves the world to the serializer.
+     * Includes all entities and chunks.
+     */
+    pub async fn save(&self) {
+        self.world_serializer
+            .save_entities(self.entities.values().collect(), self).await;
+        self.world_serializer.save_chunks(self.chunks.iter().map(|(k,v)| (*k, v)  ).collect::<Vec<_>>(), self, true).await;
+    }
+    /**
+     * gets the list of chunk ids that are close to the players
+     */
+    fn get_list_of_chunk_ids_close_to_players(&self) -> Vec<u64> {
+        //create an empty list of chunk positions
+        let mut player_positions: HashSet<chunk::Position> = HashSet::new();
+        //get all player components
+        let players = self
+            .get_all_components_of_type(component::get_type_id::<player::Player>())
+            .iter()
+            .map(|id| self.get::<player::Player>(*id).unwrap())
+            .collect::<Vec<_>>();
+        for player in players {
+            let parent = player.get_parent();
+            let position_component = self.get_by_entity_id::<Pos>(parent).expect(
+                "Player did not have a position, which is a necessary component of players",
+            );
+            player_positions.insert(position_component.dat().pos);
+        }
+        //find all chunks that are within render distance of the player
+        let mut chunks_that_should_be_loaded: Vec<chunk::ChunkId> = Vec::new();
+        for position in player_positions {
+            chunks_that_should_be_loaded.extend(self.get_chunks_in_radius_of_position(position));
+        }
+        chunks_that_should_be_loaded
+    }
+
+    /**
+     * Gets all chunks in a radius of a position.
+     */
+    fn get_chunks_in_radius_of_position(&self, position: (u32, u32)) -> Vec<chunk::ChunkId> {
+        let mut chunks_that_should_be_loaded = Vec::new();
+        for x in -self.render_distance..self.render_distance {
+            for y in -self.render_distance..self.render_distance {
+                let mut posx = position.0;
+                let mut posy = position.1;
+                if x > 0 {
+                    posx.wrapping_add((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                } else {
+                    posx.wrapping_sub((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                }
+                if y > 0 {
+                    posy.wrapping_add((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                } else {
+                    posy.wrapping_sub((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                }
+                chunks_that_should_be_loaded
+                    .push(chunk::chunk_id_from_position((posx as u32, posy as u32)));
+            }
+        }
+        chunks_that_should_be_loaded
+    }
+
     fn add_entity_to_position_map_if_has_position(&mut self) {}
 
+    /**
+     * Gets a component from its id.
+     */
     pub fn get<T: component::ComponentDataType + 'static>(
         &self,
         cid: component::ComponentId,
     ) -> Option<&component::Component<T>> {
         match self.components.get(&cid) {
             Some(component) => component.as_any().downcast_ref::<component::Component<T>>(),
+            None => None,
+        }
+    }
+    /**
+     * Gets a component from its parent entity's id
+     */
+    pub fn get_by_entity_id<T: component::ComponentDataType + 'static>(
+        &self,
+        eid: entity::EntityId,
+    ) -> Option<&component::Component<T>> {
+        match self.get_entity_by_id(eid) {
+            Some(e) => match e.get(component::get_type_id::<T>()) {
+                Some(c) => match self.get::<T>(c) {
+                    Some(c) => Some(c),
+                    None => None,
+                },
+                None => None,
+            },
             None => None,
         }
     }
