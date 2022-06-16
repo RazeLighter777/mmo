@@ -2,6 +2,7 @@ pub type ComponentId = u64;
 pub type ComponentTypeId = u64;
 use crate::{entity::EntityId, hashing, registry, world::World};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
 use std::{
     hash::{BuildHasher, Hasher},
     sync::Arc,
@@ -22,6 +23,7 @@ pub trait ComponentInterface: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn set_parent(&mut self, pid: EntityId);
     fn as_mutable(&mut self) -> &mut dyn std::any::Any;
+    fn get_json(&self) -> Value;
 }
 pub struct Component<T: ComponentDataType> {
     iid: ComponentId,
@@ -50,6 +52,10 @@ impl<T: ComponentDataType + 'static + Send + Sync> ComponentInterface for Compon
     /// Returns an any mutable trait reference
     fn as_mutable(&mut self) -> &mut dyn std::any::Any {
         self as &mut dyn std::any::Any
+    }
+
+    fn get_json(&self) -> Value {
+        serde_json::to_value(self.dat()).expect("Could not serialize component")
     }
 }
 impl<T: ComponentDataType + 'static> Component<T> {

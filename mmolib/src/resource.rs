@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-#[derive(Clone,Hash,PartialEq,Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum ResourceId {
     StoneFloor,
     Grass1,
@@ -9,8 +11,6 @@ pub enum ResourceId {
     Acid2,
     
 }
-
-
 
 pub fn spawn_resource_map() -> HashMap<ResourceId, &'static str> {
     [

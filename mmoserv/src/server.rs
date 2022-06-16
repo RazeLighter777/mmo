@@ -103,7 +103,8 @@ impl Server {
                 dat TEXT,
                 entity_id BIGINT UNSIGNED, 
                 FOREIGN KEY(entity_id) 
-                    REFERENCES entities(entity_id))",
+                    REFERENCES entities(entity_id)
+                    ON DELETE CASCADE)",
         )
         .execute(&self.pool)
         .await
@@ -299,10 +300,16 @@ impl Server {
                 Some(world_name) => {
                     let guard = sv.read().await;
                     match guard.game.get(&world_name) {
-                        Some(gm) => {
-                            let gmc = gm.clone();
-                            game::Game::handle(gmc, request).await;
-                        }
+                        Some(gm) => match request.get_user() {
+                            Some(user) => {
+                                let gmc = gm.clone();
+                                game::Game::handle(gmc, request).await;
+                            }
+                            None => {
+                                request.handle(&ServerResponseType::AuthFailure {}).await;
+                                println!("User must be logged in to join {}", &world_name);
+                            }
+                        },
                         None => {
                             request.handle(&ServerResponseType::AuthFailure {}).await;
                             println!("World {} doesn't exist yet", &world_name);

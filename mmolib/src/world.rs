@@ -7,25 +7,32 @@ use std::sync::RwLock;
 
 use crate::chunk::{self, Chunk};
 use crate::entity::{self, Entity};
-use crate::game_event;
-use crate::generator;
+use crate::pos::Pos;
 use crate::raws::RawTree;
 use crate::registry::Registry;
+use crate::{game_event, world_serializer};
+use crate::{generator, player};
 //use crate::game;
-use crate::component;
+use crate::component::{self, ComponentInterface};
+use crate::world_serializer::WorldSerializer;
 use crate::{pos, raws, registry};
 use serde_json::Value;
 
 pub struct World {
-    copmonents_by_type_id : HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
-    components : HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
+    copmonents_by_type_id: HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
+    components: HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
     entities: HashMap<entity::EntityId, entity::Entity>,
+    render_distance: i64,
     chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
     registry: registry::Registry,
+    world_serializer: Box<dyn WorldSerializer>,
     raws: raws::RawTree,
-    positions_of_entities : HashMap<entity::EntityId,pos::Pos>,
-    entities_in_chunk : HashMap<chunk::ChunkId, entity::EntityId>
+    positions_of_entities: HashMap<entity::EntityId, chunk::Position>,
+    entities_queued_for_removal: Vec<entity::EntityId>,
+    components_queued_for_removal: Vec<component::ComponentId>,
+    entities_queued_for_deletion: Vec<entity::EntityId>,
+    components_queued_for_deletion: Vec<component::ComponentId>,
 }
 
 struct EntityFilterTree<'a> {
@@ -47,7 +54,6 @@ impl<'a> EntityFilterTree<'a> {
         }
     }
 
-    
     pub fn only_list(&mut self, tid: &[component::ComponentId]) -> &EntityFilterTree {
         if tid.is_empty() {
             return self;
@@ -55,7 +61,9 @@ impl<'a> EntityFilterTree<'a> {
         let val = match self.subtrees.entry(tid[0]) {
             Vacant(mut entry) => {
                 let mut t = EntityFilterTree {
-                    filtered: self.world.copmonents_by_type_id
+                    filtered: self
+                        .world
+                        .copmonents_by_type_id
                         .get(&tid[0])
                         .unwrap_or(&HashSet::new())
                         .clone()
@@ -81,20 +89,30 @@ impl<'a> EntityFilterTree<'a> {
 }
 
 impl World {
-    pub fn new(world_name: String, raws: raws::RawTree) -> Self {
+    pub fn new(
+        world_name: String,
+        raws: raws::RawTree,
+        worldserializer: Box<dyn world_serializer::WorldSerializer>,
+    ) -> Self {
         Self {
-            copmonents_by_type_id : HashMap::new(),
-            components : HashMap::new(),
+            copmonents_by_type_id: HashMap::new(),
+            components: HashMap::new(),
             entities: HashMap::new(),
             chunks: HashMap::new(),
             world_id: world_name,
             registry: registry::RegistryBuilder::new()
                 .load_block_raws(&["block".to_owned()], &raws)
                 .with_component::<pos::Pos>()
+                .with_component::<player::Player>()
                 .build(),
             raws: raws,
+            world_serializer: worldserializer,
             positions_of_entities: HashMap::new(),
-            entities_in_chunk: HashMap::new(),
+            entities_queued_for_removal: Vec::new(),
+            components_queued_for_removal: Vec::new(),
+            entities_queued_for_deletion: Vec::new(),
+            components_queued_for_deletion: Vec::new(),
+            render_distance: 3,
         }
     }
     pub fn get_registry(&self) -> &registry::Registry {
@@ -102,9 +120,26 @@ impl World {
     }
     pub fn get_raws(&self) -> &raws::RawTree {
         &self.raws
-    }pub fn get_world_name(&self) -> &str { 
+    }
+    pub fn get_world_name(&self) -> &str {
         &self.world_id
     }
+    pub fn update_position_map(&mut self) {
+        self.positions_of_entities.clear();
+        for component_id in self
+            .copmonents_by_type_id
+            .get(&component::get_type_id::<pos::Pos>())
+            .unwrap()
+        {
+            let pos = self.get::<pos::Pos>(*component_id).unwrap();
+            self.positions_of_entities
+                .insert(*component_id, pos.dat().pos);
+        }
+    }
+    pub fn get_position_of_entity(&self, entity_id: entity::EntityId) -> Option<chunk::Position> {
+        self.positions_of_entities.get(&entity_id).cloned()
+    }
+    pub fn run_deletions_and_removals(&mut self) {}
     pub fn process(
         &self,
         gens: &Vec<Box<dyn generator::Generator>>,
@@ -143,22 +178,21 @@ impl World {
         });
         res
     }
-    pub fn spawn(&mut self, e : (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
+    pub fn spawn(&mut self, e: (Vec<Box<dyn component::ComponentInterface>>, entity::Entity)) {
         for comp in e.0 {
             match self.copmonents_by_type_id.entry(comp.get_type_id()) {
                 Occupied(mut set) => {
                     set.get_mut().insert(e.1.get_id());
-                },
+                }
                 Vacant(ent) => {
                     let mut hs = HashSet::new();
                     hs.insert(e.1.get_id());
                     ent.insert(hs);
-                },
+                }
             }
             self.components.insert(comp.get_id(), comp);
-        }        
+        }
         self.entities.insert(e.1.get_id(), e.1);
-
     }
     pub fn get_entity_by_id(&self, iid: entity::EntityId) -> Option<&entity::Entity> {
         self.entities.get(&iid)
@@ -166,16 +200,237 @@ impl World {
     pub fn get_chunk(&self, chunk_id: chunk::ChunkId) -> Option<&chunk::Chunk> {
         self.chunks.get(&chunk_id)
     }
+    pub fn get_all_components_of_type(
+        &self,
+        type_id: component::ComponentTypeId,
+    ) -> Vec<component::ComponentId> {
+        self.copmonents_by_type_id
+            .get(&type_id)
+            .unwrap_or(&HashSet::new())
+            .clone()
+            .into_iter()
+            .collect()
+    }
+    pub async fn unload_and_load_chunks(&mut self) {
+        //create an empty list of chunk positions
+        let mut player_positions: HashSet<chunk::Position> = HashSet::new();
+        //get all player components
+        let players = self
+            .get_all_components_of_type(component::get_type_id::<player::Player>())
+            .iter()
+            .map(|id| self.get::<player::Player>(*id).unwrap())
+            .collect::<Vec<_>>();
+        for player in players {
+            let parent = player.get_parent();
+            let position_component = self.get::<Pos>(parent).expect(
+                "Player did not have a position, which is a necessary component of players",
+            );
+            player_positions.insert(position_component.dat().pos);
+        }
+        //find all chunks that are within render distance of the player
+        let mut chunks_that_should_be_loaded: Vec<chunk::ChunkId> = Vec::new();
+        for position in player_positions {
+            for x in -self.render_distance..self.render_distance {
+                for y in -self.render_distance..self.render_distance {
+                    let mut posx: i64 = 0;
+                    let mut posy: i64 = 0;
+                    if x > 0 {
+                        posx.wrapping_add(x * (chunk::CHUNK_SIZE as i64));
+                    } else {
+                        posx.wrapping_sub(x * (chunk::CHUNK_SIZE as i64));
+                    }
+                    if y > 0 {
+                        posy.wrapping_add(y * (chunk::CHUNK_SIZE as i64));
+                    } else {
+                        posy.wrapping_sub(y * (chunk::CHUNK_SIZE as i64));
+                    }
+                    chunks_that_should_be_loaded
+                        .push(chunk::chunk_id_from_position((posx as u32, posy as u32)));
+                }
+            }
+        }
+        for (chunk_id, chunk) in &self.chunks {
+            self.world_serializer
+                .save_entities(
+                    chunk
+                        .get_entities()
+                        .iter()
+                        .map(|id| self.get_entity_by_id(*id).unwrap())
+                        .collect(),
+                    self,
+                )
+                .await;
+        }
+        for chunk in self
+            .chunks
+            .keys()
+            .map(|x| *x)
+            .collect::<HashSet<_>>()
+            .union(
+                &chunks_that_should_be_loaded
+                    .iter()
+                    .map(|x| *x)
+                    .collect::<HashSet<_>>(),
+            )
+        {
+            match (
+                self.chunks.contains_key(chunk),
+                chunks_that_should_be_loaded.contains(chunk),
+            ) {
+                (true, true) => {
+                    //do nothing
+                }
+                (true, false) => {
+                    //save and unload the chunk
+                    self.world_serializer
+                        .save_entities(
+                            self.chunks
+                                .get(chunk)
+                                .unwrap()
+                                .get_entities()
+                                .iter()
+                                .map(|id| self.get_entity_by_id(*id).unwrap())
+                                .collect(),
+                            self,
+                        )
+                        .await;
+                    self.world_serializer
+                        .save_chunks(
+                            vec![(*chunk, self.chunks.get(&chunk).unwrap())],
+                            self,
+                            false,
+                        )
+                        .await;
+                }
+                (false, true) => {
+                    //load the chunk with its entities and components
+                    let (new_chunk, entities, components) = self
+                        .world_serializer
+                        .retrieve_chunk_and_entities(*chunk, self)
+                        .await;
 
-    fn add_entity_to_position_map_if_has_position(&mut self) {
-        
+                    self.chunks.insert(*chunk, new_chunk);
+                    self.entities
+                        .extend(entities.into_iter().map(|x| (x.get_id(), x)));
+                    self.components
+                        .extend(components.into_iter().map(|x| (x.get_id(), x)));
+                }
+                (_, false) => {
+                    //unload every entity in the chunk
+                    for entity in self.chunks.get(chunk).unwrap().get_entities() {
+                        self.add_entity_to_removal_queue(entity);
+                    }
+                    self.chunks.remove(chunk);
+                }
+            }
+        }
+        //let mut chunks_to_unload = Vec::new();
+        self.chunks.retain(|id, chunk| {
+            if chunks_that_should_be_loaded.contains(id) {
+                true
+            } else {
+                false
+            }
+        });
     }
 
-    pub fn get<T: component::ComponentDataType>(&self, iid: entity::EntityId) -> Option<&component::Component<T>> {
-        None
-    }
+    fn add_entity_to_position_map_if_has_position(&mut self) {}
 
-    pub fn remove_entity(&mut self, iid: entity::EntityId) -> Option<Entity> {
-        self.entities.remove(&iid)
+    pub fn get<T: component::ComponentDataType + 'static>(
+        &self,
+        cid: component::ComponentId,
+    ) -> Option<&component::Component<T>> {
+        match self.components.get(&cid) {
+            Some(component) => component.as_any().downcast_ref::<component::Component<T>>(),
+            None => None,
+        }
+    }
+    pub fn get_mut<Q: component::ComponentDataType + 'static>(
+        &mut self,
+        cid: component::ComponentId,
+    ) -> Option<&mut component::Component<Q>> {
+        match self.components.get_mut(&cid) {
+            Some(component) => component
+                .as_mutable()
+                .downcast_mut::<component::Component<Q>>(),
+            None => None,
+        }
+    }
+    pub fn get_component_interface(
+        &self,
+        cid: component::ComponentId,
+    ) -> Option<&Box<dyn component::ComponentInterface>> {
+        self.components.get(&cid)
+    }
+    pub fn add_entity_to_deletion_queue(&mut self, iid: entity::EntityId) {
+        self.entities_queued_for_deletion.push(iid);
+    }
+    pub fn add_component_to_deletion_queue(&mut self, iid: component::ComponentId) {
+        self.components_queued_for_deletion.push(iid);
+    }
+    pub fn add_component_to_removal_queue(&mut self, iid: component::ComponentId) {
+        self.components_queued_for_removal.push(iid);
+    }
+    pub fn add_entity_to_removal_queue(&mut self, iid: entity::EntityId) {
+        self.entities_queued_for_removal.push(iid);
+    }
+    pub async fn cleanup_deleted_and_removed_entities_and_components(&mut self) {
+        self.world_serializer
+            .delete_components(self.components_queued_for_deletion.clone())
+            .await;
+        self.world_serializer
+            .delete_entities(self.entities_queued_for_deletion.clone())
+            .await;
+        for component in [
+            self.components_queued_for_deletion.as_slice(),
+            self.components_queued_for_removal.as_slice(),
+        ]
+        .concat()
+        {
+            self.remove_component(component);
+        }
+        for entity in [
+            self.entities_queued_for_deletion.as_slice(),
+            self.entities_queued_for_removal.as_slice(),
+        ]
+        .concat()
+        {
+            self.remove_entity(entity);
+        }
+    }
+    fn remove_component(&mut self, iid: component::ComponentId) -> bool {
+        match self.get_component_interface(iid) {
+            Some(x) => {
+                let tid = x.get_type_id();
+                let iid = x.get_id();
+                let pid = x.get_parent();
+                self.copmonents_by_type_id
+                    .get_mut(&tid)
+                    .unwrap()
+                    .remove(&iid)
+                    && self.entities.get_mut(&pid).unwrap().remove(tid)
+                    && self.components.remove(&iid).is_some()
+            }
+            None => false,
+        }
+    }
+    fn remove_entity(&mut self, iid: entity::EntityId) -> bool {
+        match self.entities.get(&iid) {
+            Some(entity) => {
+                let iid = entity.get_id();
+                for component in entity.get_component_ids() {
+                    self.remove_component(component);
+                }
+                let pos = self.positions_of_entities.remove(&iid).unwrap();
+                match self.chunks.get_mut(&chunk::chunk_id_from_position(pos)) {
+                    Some(chunk) => {
+                        chunk.remove(iid);
+                    }
+                    None => {}
+                }
+                self.entities.remove(&iid).is_some()
+            }
+            None => false,
+        }
     }
 }
