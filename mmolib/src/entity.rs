@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     hash::{BuildHasher, Hasher},
-    sync::Arc,
+    sync::Arc, fmt::Debug,
 };
 
 use serde::Deserialize;
@@ -13,8 +13,9 @@ use crate::{
     world::World,
 };
 
-#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize)]
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, Debug)]
 pub struct EntityId(pub u64);
+#[derive(Debug)]
 pub struct Entity {
     iid: EntityId,
     components: HashMap<component::ComponentTypeId, component::ComponentId>,
@@ -45,7 +46,7 @@ impl<'a> EntityBuilder<'a> {
             world,
         )
     }
-    pub fn add<T: component::ComponentDataType + 'static + Send + Sync>(mut self, data: T) -> Self {
+    pub fn add<T: component::ComponentDataType + 'static + Send + Sync + Debug>(mut self, data: T) -> Self {
         let cmps = component::Component::new(data, self.e.iid, self.world);
         for boxcmp in cmps {
             self.e

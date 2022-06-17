@@ -1,5 +1,6 @@
-use mmolib::{block_type, chunk::CHUNK_SIZE};
 
+use mmolib::{block_type, chunk::CHUNK_SIZE};
+#[derive(Debug)]
 pub struct FlatWorldGenerator {}
 
 impl FlatWorldGenerator {

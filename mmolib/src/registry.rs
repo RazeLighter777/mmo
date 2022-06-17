@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
@@ -15,9 +16,16 @@ use serde_json::Value;
 
 pub type ComponentSerializationFunction =
     fn(dat: Value, parent: entity::EntityId, world: &World) -> Vec<Box<dyn ComponentInterface>>;
+
+
 pub struct Registry {
     block_types: HashMap<block_type::BlockTypeId, block_type::BlockType>,
     component_types: HashMap<component::ComponentTypeId, ComponentSerializationFunction>,
+}
+impl Debug for Registry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Registry").field("block_types", &self.block_types).finish()
+    }
 }
 
 pub struct RegistryBuilder {
@@ -33,7 +41,7 @@ impl RegistryBuilder {
             },
         }
     }
-    pub fn with_component<T: ComponentDataType + 'static>(mut self) -> Self {
+    pub fn with_component<T: ComponentDataType + 'static + Debug>(mut self) -> Self {
         self.registry.component_types.insert(
             component::get_type_id::<T>(),
             |dat: Value, parent: entity::EntityId, world: &World| {

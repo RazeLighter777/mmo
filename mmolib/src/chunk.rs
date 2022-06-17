@@ -8,7 +8,7 @@ use crate::entity;
 
 pub const CHUNK_SIZE: usize = 32;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize,Debug)]
 pub struct Chunk {
     blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE],
     #[serde(skip_serializing)]

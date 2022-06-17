@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use mmolib::{component::ComponentInterface, world, world_serializer};
 use sqlx::{MySql, Pool};
-
 use crate::{flat_world_generator, sql_loaders};
+#[derive(Debug)]
 pub struct SqlWorldSerializer {
     conn: Pool<MySql>,
     generator: Box<dyn mmolib::chunk_generator::ChunkGenerator>,

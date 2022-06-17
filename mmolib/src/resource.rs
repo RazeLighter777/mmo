@@ -22,8 +22,6 @@ pub fn spawn_resource_map() -> HashMap<ResourceId,ResourceType<'static>> {
         (ResourceId::StoneFloor, ResourceType::StaticImage("images/sprite/StoneFloor.png")),
         (ResourceId::Grass1, ResourceType::StaticImage("images/sprite/Grass1.png")),
         (ResourceId::AcidAnimation, ResourceType::Animation(&["images/sprite/Acid1.png", "images/sprite/Acid2.png"])),
-
-        
     ]
     .iter()
     .cloned()

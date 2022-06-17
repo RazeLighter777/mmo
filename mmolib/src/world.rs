@@ -19,6 +19,8 @@ use crate::world_serializer::WorldSerializer;
 use crate::{pos, raws, registry};
 use serde_json::Value;
 
+
+#[derive(Debug)]
 pub struct World {
     copmonents_by_type_id: HashMap<component::ComponentTypeId, HashSet<component::ComponentId>>,
     components: HashMap<component::ComponentId, Box<dyn component::ComponentInterface>>,
@@ -370,14 +372,14 @@ impl World {
                 let mut posx = position.0;
                 let mut posy = position.1;
                 if x > 0 {
-                    posx.wrapping_add((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                    posx = posx.wrapping_add((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
                 } else {
-                    posx.wrapping_sub((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                    posx = posx.wrapping_sub((x.abs() as u32) * (chunk::CHUNK_SIZE as u32));
                 }
                 if y > 0 {
-                    posy.wrapping_add((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                    posy = posy.wrapping_add((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
                 } else {
-                    posy.wrapping_sub((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
+                    posy = posy.wrapping_sub((y.abs() as u32) * (chunk::CHUNK_SIZE as u32));
                 }
                 chunks_that_should_be_loaded
                     .push(chunk::chunk_id_from_position((posx as u32, posy as u32)));

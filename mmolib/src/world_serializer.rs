@@ -1,8 +1,12 @@
+use std::fmt::Debug;
+
 use async_trait::async_trait;
 
 use crate::{chunk, chunk_generator, component, entity, world};
+
+
 #[async_trait]
-pub trait WorldSerializer: Send + Sync {
+pub trait WorldSerializer: Send + Sync + Debug {
     //this function sets the generator for the world serializer
     async fn set_generator(&mut self, gen: Box<dyn chunk_generator::ChunkGenerator>);
     /**

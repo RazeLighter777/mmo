@@ -68,6 +68,7 @@ impl Game {
         &mut self.world
     }
     pub async fn start_game(gm: Arc<RwLock<Self>>) {
+        let mut counter: u128 = 0;
         task::spawn(async move {
             let mut gmw1 = gm.write().await;
             let eb = entity::EntityBuilder::new(gmw1.world.get_registry(), &gmw1.world)
@@ -97,7 +98,6 @@ impl Game {
                     h.handle(&gmw2.event_collector);
                 }
                 drop(gmw2);
-                println!("Ticked!");
                 //send tick message to all connections.
                 let mut gmw2 = gm.write().await;
                 for conn in &gmw2.active_connections {
@@ -111,7 +111,8 @@ impl Game {
                     .cleanup_deleted_and_removed_entities_and_components()
                     .await;
                 gmw2.world.save().await;
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                counter += 1;
+                println!("Ticked {} times", counter);
             }
         });
     }
