@@ -271,7 +271,6 @@ impl Server {
             self.game.insert(String::from(world_name), gmrwlock2);
             true
         } else {
-
             false
         }
     }
@@ -283,9 +282,11 @@ impl Server {
                     if guard.create_world(&world_name).await {
                         request.handle(&ServerResponseType::Ok {}).await;
                     } else {
-                        request.handle(&ServerResponseType::Error {
-                            message: "World already exists",
-                        }).await;
+                        request
+                            .handle(&ServerResponseType::Error {
+                                message: "World already exists",
+                            })
+                            .await;
                     }
                 } else {
                     request

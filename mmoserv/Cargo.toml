@@ -11,6 +11,7 @@ futures = "0.3"
 mmolib = {path = "../mmolib", version = "*"}
 crossbeam-channel = "0.5.4"
 async-trait = "0.1.56"
+bevy_ecs = "0.7.0"
 
 [dependencies.clap]
 features = ["derive"]

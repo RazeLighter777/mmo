@@ -17,14 +17,11 @@ use crate::handler;
 use crate::server;
 use crate::server_request;
 use crate::server_request::ServerRequest;
-use crate::sql_world_serializer;
 use mmolib::game_event::GameEvent;
-use mmolib::generator;
+use mmolib::game_world;
 use mmolib::raws::RawTree;
-use mmolib::world;
 pub struct Game {
-    world: world::World,
-    generators: Vec<Box<dyn generator::Generator>>,
+    world: game_world::GameWorld,
     handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
     conn: Pool<MySql>,
@@ -34,10 +31,8 @@ pub struct Game {
 impl Game {
     pub fn new(path: &str, conn: Pool<MySql>, world_id: String) -> Self {
         let rt = RawTree::new(path);
-        let serializer = Box::new(sql_world_serializer::SqlWorldSerializer::new(conn.clone()));
         Game {
-            world: world::World::new(world_id, rt, serializer),
-            generators: Vec::new(),
+            world: game_world::GameWorld::new(world_id, rt),
             handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
             conn: conn,
@@ -59,41 +54,21 @@ impl Game {
             }
         }
     }
-    pub fn add_generator(&mut self, generator: Box<dyn generator::Generator>) {
-        self.generators.push(generator);
-    }
 
     pub fn tick(&mut self) {}
-    pub fn get_world(&mut self) -> &mut world::World {
+    pub fn get_world(&mut self) -> &mut game_world::GameWorld {
         &mut self.world
     }
     pub async fn start_game(gm: Arc<RwLock<Self>>) {
         let mut counter: u128 = 0;
         task::spawn(async move {
             let mut gmw1 = gm.write().await;
-            let eb = entity::EntityBuilder::new(gmw1.world.get_registry(), &gmw1.world)
-                .add(mmolib::player::Player {
-                    username: "admin".to_string(),
-                })
-                .add(mmolib::pos::Pos {
-                    pos: (100, 100),
-                    load_with_chunk: false,
-                })
-                .build();
-            gmw1.world.spawn(eb);
             drop(gmw1);
             loop {
                 //borrow as writable
-                let mut gmw1 = gm.write().await;
-                for g in &mut gmw1.generators {
-                    g.update();
-                }
-                drop(gmw1);
                 let gmr1 = gm.read().await;
-                let evs = gmr1.world.process(&gmr1.generators);
                 drop(gmr1);
                 let mut gmw2 = gm.write().await;
-                gmw2.event_collector.add_events(evs);
                 for h in &gmw2.handlers {
                     h.handle(&gmw2.event_collector);
                 }
@@ -107,9 +82,6 @@ impl Game {
                     .await;
                 }
                 gmw2.world.unload_and_load_chunks().await;
-                gmw2.world
-                    .cleanup_deleted_and_removed_entities_and_components()
-                    .await;
                 gmw2.world.save().await;
                 counter += 1;
                 println!("Ticked {} times", counter);

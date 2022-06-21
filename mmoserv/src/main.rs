@@ -15,7 +15,6 @@ mod handler;
 mod server;
 mod server_request;
 mod sql_loaders;
-mod sql_world_serializer;
 use std::time::Duration;
 
 #[tokio::main(flavor = "current_thread")]
