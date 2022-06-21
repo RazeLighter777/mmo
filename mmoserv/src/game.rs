@@ -13,7 +13,6 @@ use tokio_tungstenite::WebSocketStream;
 
 use crate::connection;
 use crate::event_collector;
-use crate::handler;
 use crate::server;
 use crate::server_request;
 use crate::server_request::ServerRequest;
@@ -22,10 +21,10 @@ use mmolib::game_world;
 use mmolib::raws::RawTree;
 pub struct Game {
     world: game_world::GameWorld,
-    handlers: Vec<Box<dyn handler::HandlerInterface>>,
     event_collector: event_collector::EventCollector,
     conn: Pool<MySql>,
     active_connections: Vec<connection::Connection>,
+    registry : mmolib::registry::Registry
 }
 
 impl Game {
@@ -33,9 +32,11 @@ impl Game {
         let rt = RawTree::new(path);
         Game {
             world: game_world::GameWorld::new(world_id, rt),
-            handlers: Vec::new(),
             event_collector: event_collector::EventCollector::new(),
             conn: conn,
+            registry : mmolib::registry::RegistryBuilder::new()
+            .with_component::<mmolib::position::Position>()
+            .build(),
             active_connections: Vec::new(),
         }
     }
@@ -62,29 +63,7 @@ impl Game {
     pub async fn start_game(gm: Arc<RwLock<Self>>) {
         let mut counter: u128 = 0;
         task::spawn(async move {
-            let mut gmw1 = gm.write().await;
-            drop(gmw1);
             loop {
-                //borrow as writable
-                let gmr1 = gm.read().await;
-                drop(gmr1);
-                let mut gmw2 = gm.write().await;
-                for h in &gmw2.handlers {
-                    h.handle(&gmw2.event_collector);
-                }
-                drop(gmw2);
-                //send tick message to all connections.
-                let mut gmw2 = gm.write().await;
-                for conn in &gmw2.active_connections {
-                    conn.send(ServerResponseType::Ticked {
-                        world_name: gmw2.world.get_world_name().to_owned(),
-                    })
-                    .await;
-                }
-                gmw2.world.unload_and_load_chunks().await;
-                gmw2.world.save().await;
-                counter += 1;
-                println!("Ticked {} times", counter);
             }
         });
     }

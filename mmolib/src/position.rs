@@ -1,9 +1,10 @@
 use bevy_ecs::prelude::Component;
-use serde::Deserialize;
-
+use bevy_reflect::{Reflect};
+use serde::{Deserialize, Serialize};
+use bevy_reflect::ReflectDeserialize;
 use crate::chunk;
-
-#[derive(Component, Deserialize)]
+#[derive(Reflect, Default, Serialize, Deserialize, Clone, PartialEq, Debug,Component)]
+#[reflect_value(Serialize, PartialEq, Deserialize)]
 pub struct Position {
     pub pos : chunk::Position,
     pub load_with_chunk : bool

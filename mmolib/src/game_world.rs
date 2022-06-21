@@ -39,7 +39,6 @@ impl GameWorld {
             SystemStage::parallel().with_system(uuid_system::uuid_system),
         );
         world.insert_resource(raws);
-        world.insert_resource(registry::RegistryBuilder::new().build());
         let res = Self {
             chunks: HashMap::new(),
             world_id: world_name,
@@ -66,10 +65,6 @@ impl GameWorld {
 
     pub fn get_world_mut(&mut self) -> &mut bevy_ecs::world::World {
         &mut self.world
-    }
-
-    pub fn get_registry(&self) -> &Registry {
-        self.world.get_resource::<registry::Registry>().unwrap()
     }
 
     pub fn get_raws(&self) -> &raws::RawTree {

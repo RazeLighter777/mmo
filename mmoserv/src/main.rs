@@ -11,7 +11,6 @@ mod connection;
 mod event_collector;
 mod flat_world_generator;
 mod game;
-mod handler;
 mod server;
 mod server_request;
 mod sql_loaders;

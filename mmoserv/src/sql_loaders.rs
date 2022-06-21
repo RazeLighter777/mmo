@@ -131,6 +131,7 @@ pub async fn save_entity<'a>(
     entity_id: entity::EntityId,
     ent_mut: EntityMut<'a>,
     world: &'a mut GameWorld,
+    registry: &'a Registry,
 ) {
     // Acquire a new connection and immediately begin a transaction
 let ent = world
@@ -168,10 +169,12 @@ let ent = world
         let reflect_component = world.get_world()
         .components()
         .get_info(id)
-        .and_then(|info| world.get_registry().type_registry().get(info.type_id().unwrap()))
+        .and_then(|info| registry.type_registry().get(info.type_id().unwrap()))
         .and_then(|registration| {component_long_name_string = registration.name().to_owned() ;registration.data::<ReflectComponent>()}).unwrap();
         let reflect = reflect_component.reflect_component(world.get_world(),ent).and_then(|refl| refl.serializable()).unwrap();
         let ser = reflect.borrow();
+        let ser = serde_json::to_value(&ser).unwrap();
+        let ser = ser.get("value").unwrap();
         sqlx::query(
             "INSERT INTO components (type_id, dat, entity_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE type_id=type_id",
         )
