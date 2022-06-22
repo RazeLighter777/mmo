@@ -18,4 +18,7 @@ impl ChunkMap {
     pub fn get(&self, chunk_id: ChunkId) -> Option<&Chunk> {
         self.chunks.get(&chunk_id)
     }
+    pub fn remove(&mut self, chunk_id: ChunkId) -> Option<Chunk> {
+        self.chunks.remove(&chunk_id)
+    }
 }

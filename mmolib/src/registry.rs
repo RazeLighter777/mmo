@@ -42,7 +42,7 @@ impl RegistryBuilder {
             },
         }
     }
-    pub fn with_component<T: ComponentDataType + 'static + DeserializeOwned + Component + GetTypeRegistration>(
+    pub fn with_component<T: 'static + DeserializeOwned + Component + GetTypeRegistration>(
         mut self,
     ) -> Self {
         self.registry.type_registry.register::<T>();

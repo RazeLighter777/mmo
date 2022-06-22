@@ -8,7 +8,6 @@ use serde_json::Value;
 mod args;
 mod complex;
 mod connection;
-mod event_collector;
 mod flat_world_generator;
 mod game;
 mod server;

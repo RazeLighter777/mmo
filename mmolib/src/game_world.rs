@@ -7,11 +7,10 @@ use std::sync::Mutex;
 use std::sync::RwLock;
 
 use crate::chunk::{self, Chunk};
-use crate::chunk_generator;
+use crate::{chunk_generator, player, position};
 use crate::raws::RawTree;
 use crate::registry::Registry;
 use crate::{entity, uuid_system};
-use crate::{game_event, };
 //use crate::game;
 use crate::component;
 use crate::{raws, registry};
@@ -19,12 +18,11 @@ use bevy_ecs::schedule::SystemStage;
 use bevy_ecs::world::EntityMut;
 use serde_json::Value;
 
-#[derive(Debug)]
 pub struct GameWorld {
     world: bevy_ecs::world::World,
     render_distance: i64,
-    chunks: HashMap<chunk::ChunkId, chunk::Chunk>,
     world_id: String,
+    between_ticks_scheduler: bevy_ecs::schedule::Schedule
 }
 
 impl GameWorld {
@@ -40,10 +38,11 @@ impl GameWorld {
         );
         world.insert_resource(raws);
         let res = Self {
-            chunks: HashMap::new(),
             world_id: world_name,
             render_distance: 3,
             world: world,
+            between_ticks_scheduler: schedule
+
         };
         //resources.insert(res);
         res
@@ -63,6 +62,10 @@ impl GameWorld {
         &self.world
     }
 
+    pub fn run_between_ticks_scheduler(&mut self) {
+        self.between_ticks_scheduler.run_once(&mut self.world);
+    }
+
     pub fn get_world_mut(&mut self) -> &mut bevy_ecs::world::World {
         &mut self.world
     }
@@ -78,20 +81,14 @@ impl GameWorld {
     pub async fn save(&self) {
         todo!()
     }
-    /**
-     * gets the list of chunk ids that are close to the players
-     */
-    fn get_list_of_chunk_ids_close_to_players(&self) -> Vec<u64> {
-        todo!()
-    }
-
+    
     /**
      * Gets all chunks in a radius of a position.
      */
-    fn get_chunks_in_radius_of_position(&self, position: (u32, u32)) -> Vec<chunk::ChunkId> {
+    fn get_chunks_in_radius_of_position(render_distance:  i64, position: (u32, u32)) -> Vec<chunk::ChunkId> {
         let mut chunks_that_should_be_loaded = Vec::new();
-        for x in -self.render_distance..self.render_distance {
-            for y in -self.render_distance..self.render_distance {
+        for x in render_distance..render_distance {
+            for y in render_distance..render_distance {
                 let mut posx = position.0;
                 let mut posy = position.1;
                 if x > 0 {
@@ -110,7 +107,20 @@ impl GameWorld {
         }
         chunks_that_should_be_loaded
     }
-
+    /**
+     * gets the list of chunk ids that are close to the players
+     */
+    pub fn get_list_of_chunk_ids_close_to_players(&mut self) -> Vec<chunk::ChunkId> {
+        let mut chunk_ids = Vec::new();
+        let mut q = self.world.query::<(&position::Position, &player::Player)>();
+        for (pos, player) in q.iter(&self.world) {
+            chunk_ids.extend(GameWorld::get_chunks_in_radius_of_position(
+                self.render_distance,
+                pos.pos
+            ));
+        }
+        chunk_ids
+    }
     fn add_entity_to_position_map_if_has_position(&mut self) {}
 
     /**

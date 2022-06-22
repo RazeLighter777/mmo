@@ -20,14 +20,73 @@ pub async fn create_world(conn: Pool<MySql>, world_id: &str) -> bool {
         .is_ok();
     r
 }
-
+pub async fn initialize_database(conn : Pool<MySql>)  {
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS worlds (
+            world_id VARCHAR(50) PRIMARY KEY NOT NULL)",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS users (
+            user_id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
+            user_name TEXT,
+            password_hash TEXT,
+            admin BOOLEAN)",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS chunks (
+            chunk_id BIGINT UNSIGNED,
+            world_id VARCHAR(50)  NOT NULL,
+            chunk_dat BLOB,
+            loaded BOOLEAN,
+            FOREIGN KEY (world_id)
+                REFERENCES worlds(world_id)
+                ON DELETE CASCADE,
+            PRIMARY KEY (chunk_id,world_id))",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS entities (
+            entity_id BIGINT UNSIGNED PRIMARY KEY,
+            chunk_id BIGINT UNSIGNED,
+            world_id VARCHAR(50) NOT NULL,
+            FOREIGN KEY(chunk_id) 
+                REFERENCES chunks(chunk_id),
+            FOREIGN KEY(world_id)
+                REFERENCES worlds(world_id)
+                ON DELETE CASCADE
+            )",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS components (
+            type_id BIGINT UNSIGNED,
+            dat TEXT,
+            entity_id BIGINT UNSIGNED, 
+            FOREIGN KEY(entity_id) 
+                REFERENCES entities(entity_id)
+                ON DELETE CASCADE)",
+    )
+    .execute(&conn)
+    .await
+    .unwrap();
+}
 pub async fn load_entity(
     conn: Pool<MySql>,
     entity_id: entity::EntityId,
     world: &mut  GameWorld,
     registry : &Registry,
 ) {
-    let rows = sqlx::query("SELECT type_id, dat FROM components JOIN entities ON entities.entity_id = components.entity_id?")
+    let rows = sqlx::query("SELECT components.type_id, components.dat FROM components JOIN entities ON entities.entity_id = components.entity_id")
         .bind(entity_id.id())
         .fetch_all(&conn)
         .await.unwrap();
@@ -39,16 +98,25 @@ pub async fn load_entity(
             .add_component_to_entity(&mut world.spawn(), type_string, dat);
     }
 }
-pub async fn retreive_all_loaded_chunks_and_entities(conn: &Pool<MySql>, world: &mut GameWorld, registry: &Registry) {
+pub async fn retreive_all_loaded_chunks_and_entities(conn: &Pool<MySql>, world: &mut GameWorld, registry: &Registry) -> Vec<(chunk::ChunkId, chunk::Chunk)> {
     let rows = sqlx::query("SELECT chunk_id FROM chunks WHERE loaded = true")
         .fetch_all(conn)
         .await
         .expect("Error in database when loading chunks previously set as loaded");
     //load every chunk in using load_chunk_and_entities
+    let mut chunks = Vec::new();
     for row in rows {
         let chunk_id: u64 = row.try_get("chunk_id").expect("Could not get chunk_id");
-        load_chunk_and_entities(conn, ChunkId::new_raw(chunk_id), world, registry).await;
+        match load_chunk_and_entities(conn, ChunkId::new_raw(chunk_id), world, registry).await {
+            Some(chunk) => {
+                chunks.push((ChunkId::new_raw(chunk_id),chunk));
+            }
+            None => {
+                println!("Error loading chunk");
+            }
+        }
     }
+    chunks
 }
 
 pub async fn load_chunk_and_entities(
@@ -56,7 +124,7 @@ pub async fn load_chunk_and_entities(
     chunk_id: chunk::ChunkId,
     world: &mut game_world::GameWorld,
     registry : &Registry,
-) {
+) -> Option<chunk::Chunk> {
     let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
         .bind(chunk_id.id())
         .bind(world.get_world_name())
@@ -92,12 +160,16 @@ pub async fn load_chunk_and_entities(
                         let ent = world.spawn();
                         load_entity(conn.clone(), entity_id, world, registry).await;
                     }
+                    Some(chunk)
                 }
-                Err(_) => {}
+                Err(_) => {
+                    None
+                }
             };
         }
         None => {}
     }
+    None
 }
 
 pub async fn save_chunk<'a>(
@@ -201,8 +273,9 @@ pub async fn check_if_chunk_exists<'a>(
     chunk_id: chunk::ChunkId,
     world: &'a GameWorld,
 ) -> bool {
-    match sqlx::query("SELECT chunk_id FROM chunks WHERE chunks.chunk_id = ?")
+    match sqlx::query("SELECT chunk_id FROM chunks WHERE chunks.chunk_id = ? AND chunks.world_id = ?")
         .bind(chunk_id.id())
+        .bind(world.get_world_name())
         .fetch_one(tx)
         .await
     {

@@ -11,7 +11,6 @@ pub mod chunk_map;
 pub mod component;
 pub mod effect;
 pub mod entity;
-pub mod game_event;
 pub mod game_world;
 pub mod hashing;
 pub mod player;
