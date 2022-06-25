@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::block_type;
-use crate::entity;
+use crate::entity_id;
 
 pub const CHUNK_SIZE: usize = 32;
 

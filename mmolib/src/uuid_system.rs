@@ -1,6 +1,6 @@
 use bevy_ecs::{prelude::*, world::EntityMut};
 
-use crate::{chunk::Position, entity::EntityId, uuid_map};
+use crate::{chunk::Position, entity_id::EntityId, uuid_map};
 
 pub fn uuid_system(
     mut uuid_map: ResMut<uuid_map::UuidMap>,

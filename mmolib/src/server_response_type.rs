@@ -10,4 +10,5 @@ pub enum ServerResponseType {
     PermissionDenied {},
     Error { message: &'static str },
     Ticked { world_name: String },
+    ChatMessage { message: String, username: String },
 }

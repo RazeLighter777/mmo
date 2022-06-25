@@ -3,7 +3,7 @@ use std::{any::Any, sync::Arc};
 use bevy_ecs::{prelude::ReflectComponent, world::EntityMut};
 use mmolib::{
     chunk::{self, Chunk, ChunkId},
-    component, entity,
+    component, entity_id,
     game_world::{self, GameWorld},
     hashing,
     raws::RawTree,
@@ -17,6 +17,14 @@ pub async fn create_world(conn: Pool<MySql>, world_id: &str) -> bool {
     let r = sqlx::query("INSERT INTO worlds (world_id) VALUES (?)")
         .bind(world_id)
         .execute(&conn)
+        .await
+        .is_ok();
+    r
+}
+pub async fn check_if_world_exists(conn: Pool<MySql>, world_id: &str) -> bool {
+    let r = sqlx::query("SELECT * FROM worlds WHERE world_id = ?")
+        .bind(world_id)
+        .fetch_one(&conn)
         .await
         .is_ok();
     r
@@ -84,7 +92,7 @@ pub async fn initialize_database(conn: Pool<MySql>) {
 }
 pub async fn load_entity(
     conn: Pool<MySql>,
-    entity_id: entity::EntityId,
+    entity_id: entity_id::EntityId,
     world: &mut GameWorld,
     registry: &Registry,
 ) {
@@ -130,7 +138,7 @@ pub async fn load_chunk_and_entities(
     world: &mut game_world::GameWorld,
     registry: &Registry,
 ) -> Option<chunk::Chunk> {
-    let r = sqlx::query("SELECT dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
+    let r = sqlx::query("SELECT chunk_dat FROM chunks WHERE chunk_id = ? AND world_id = ?")
         .bind(chunk_id.id())
         .bind(world.get_world_name())
         .fetch_optional(conn)
@@ -139,7 +147,7 @@ pub async fn load_chunk_and_entities(
     match r {
         Some(row) => {
             let c = Chunk::new(
-                row.try_get("dat")
+                row.try_get("chunk_dat")
                     .expect("chunk format in database invalid"),
             );
             return match c {
@@ -160,8 +168,8 @@ pub async fn load_chunk_and_entities(
                     .await
                     .expect("error querying database for entities");
                     for row in r {
-                        let entity_id: entity::EntityId =
-                            entity::EntityId::new_with_number(row.try_get("entity_id").unwrap());
+                        let entity_id: entity_id::EntityId =
+                            entity_id::EntityId::new_with_number(row.try_get("entity_id").unwrap());
                         let ent = world.spawn();
                         load_entity(conn.clone(), entity_id, world, registry).await;
                     }
@@ -202,7 +210,7 @@ pub async fn save_chunk<'a>(
 }
 pub async fn save_entity<'a>(
     conn: Pool<MySql>,
-    entity_id: entity::EntityId,
+    entity_id: entity_id::EntityId,
     world: &'a mut GameWorld,
     registry: &'a Registry,
 ) {
@@ -261,15 +269,11 @@ pub async fn save_entity<'a>(
                     let ser = serde_json::to_string(&ser).unwrap();
                     println!("Serialization : {}", &ser);
                     //let ser = ser.get("value").unwrap();
-                    results.push((
-                        component_long_name_string.to_owned(),
-                        ser,
-                        entity_id.id(),
-                    ));
+                    results.push((component_long_name_string.to_owned(), ser, entity_id.id()));
                 }
                 None => {
                     println!("Could not find component info for {:?}", id);
-                },
+                }
             }
         }
     }
@@ -287,7 +291,7 @@ pub async fn save_entity<'a>(
 }
 pub async fn delete_entity<'a>(
     mut tx: Transaction<'a, MySql>,
-    entity_id: entity::EntityId,
+    entity_id: entity_id::EntityId,
 ) -> Transaction<'a, MySql> {
     let r = sqlx::query("DELETE FROM entities WHERE entities.entity_id = ?")
         .bind(entity_id.id())

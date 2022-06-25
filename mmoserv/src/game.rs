@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 
 use mmolib::chunk_generator;
-use mmolib::entity;
+use mmolib::entity_id;
 use mmolib::server_response_type::ServerResponseType;
 use mmolib::uuid_map;
 use serde_json::json;
@@ -37,13 +37,15 @@ impl Game {
             conn: conn,
             registry: Arc::new(
                 mmolib::registry::RegistryBuilder::new()
-                    .with_component::<mmolib::position::Position>()
-                    .with_component::<mmolib::entity::EntityId>()
-                    .with_component::<mmolib::player::Player>()
                     .load_block_raws(&["block".to_owned()], &rt)
                     .build(),
             ),
-            world: Arc::new(Mutex::new(game_world::GameWorld::new(world_id, rt))),
+            world: Arc::new(Mutex::new(
+                game_world::GameWorldBuilder::new(&world_id)
+                    .with_render_distance(10)
+                    .with_raws(rt)
+                    .build(),
+            )),
             active_connections: Vec::new(),
             chunk_generator: Box::new(flat_world_generator::FlatWorldGenerator::new()),
         }
@@ -57,6 +59,20 @@ impl Game {
                     .push(request.get_connection());
                 request.handle(&ServerResponseType::Ok {}).await;
                 println!("Someone else has joined game")
+            }
+
+            mmolib::server_request_type::ServerRequestType::SendChat {
+                world_name,
+                message,
+            } => {
+                for connection in &gm.read().await.active_connections {
+                    connection
+                        .send(ServerResponseType::ChatMessage {
+                            message: message.clone(),
+                            username: connection.get_username().to_owned(),
+                        })
+                        .await;
+                }
             }
             _ => {
                 println!("Request sent to game was not handled")

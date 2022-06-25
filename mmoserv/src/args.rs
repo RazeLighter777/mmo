@@ -1,4 +1,13 @@
+use clap::ArgEnum;
 use clap::Parser;
+
+#[derive(clap::ArgEnum, Clone)]
+pub enum RegistrationPolicy {
+    Public,
+    Closed,
+    InviteOnly,
+}
+
 #[derive(Parser)]
 #[clap(author = "Justin Suess", version, about = "rust ecs mmo server")]
 pub struct Args {
@@ -33,4 +42,6 @@ pub struct Args {
         help = "name of server database to use"
     )]
     pub secret: String,
+    #[clap(arg_enum, default_value = "public")]
+    pub server_visibility: RegistrationPolicy,
 }

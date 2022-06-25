@@ -10,7 +10,7 @@ pub mod chunk_generator;
 pub mod chunk_map;
 pub mod component;
 pub mod effect;
-pub mod entity;
+pub mod entity_id;
 pub mod game_world;
 pub mod hashing;
 pub mod player;

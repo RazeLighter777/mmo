@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy_ecs::entity::Entity;
 
-use crate::entity::EntityId;
+use crate::entity_id::EntityId;
 
 pub struct UuidMap {
     uuid_to_entity: HashMap<EntityId, Entity>,
@@ -27,7 +27,7 @@ impl UuidMap {
     pub fn get(&self, uuid: EntityId) -> Option<&Entity> {
         self.uuid_to_entity.get(&uuid)
     }
-    pub fn remove(&mut self, entity: Entity) {
+    pub(crate) fn remove(&mut self, entity: Entity) {
         match self.entity_to_uuid.get(&entity) {
             Some(uuid) => {
                 self.uuid_to_entity.remove(uuid);

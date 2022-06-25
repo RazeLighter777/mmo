@@ -3,18 +3,18 @@ use std::{collections::HashMap, fmt};
 
 use crate::component::ComponentTypeId;
 use crate::game_world::GameWorld;
-use crate::hashing;
 use crate::raws::Raw;
 use crate::{
     block_type,
     component::{self, ComponentDataType},
-    entity,
+    entity_id,
     raws::RawTree,
 };
+use crate::{hashing, player, position};
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_ecs::world::EntityMut;
 use bevy_reflect::serde::{ReflectDeserializer, ReflectSerializer};
-use bevy_reflect::{GetTypeRegistration, ReflectDeserialize, TypeRegistry, FromType, Reflect};
+use bevy_reflect::{FromType, GetTypeRegistration, Reflect, ReflectDeserialize, TypeRegistry};
 use serde::de::{DeserializeOwned, DeserializeSeed};
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,20 +34,31 @@ pub struct RegistryBuilder {
 
 impl RegistryBuilder {
     pub fn new() -> Self {
-        Self {
+        let mut result = Self {
             registry: Registry {
                 block_types: HashMap::new(),
                 type_registry: TypeRegistry::default(),
                 ser_funcs: HashMap::new(),
             },
-        }
+        };
+        //add default components
+        result = result.with_component::<position::Position>();
+        result = result.with_component::<player::Player>();
+        result = result.with_component::<entity_id::EntityId>();
+        result
     }
-    pub fn with_component<T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default>(
+    pub fn with_component<
+        T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default,
+    >(
         mut self,
     ) -> Self {
         //due to shitty docs, I didn't know you also needed to register ReflectComponent.
         self.registry.type_registry.register::<T>();
-        let registration = self.registry.type_registry.get_mut(std::any::TypeId::of::<T>()).unwrap();
+        let registration = self
+            .registry
+            .type_registry
+            .get_mut(std::any::TypeId::of::<T>())
+            .unwrap();
         registration.insert(<ReflectComponent as FromType<T>>::from_type());
 
         self.registry.ser_funcs.insert(

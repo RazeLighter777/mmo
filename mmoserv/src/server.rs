@@ -43,6 +43,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 pub struct Server {
+    visibility: args::RegistrationPolicy,
     dburl: String,
     pool: Pool<MySql>,
     game: HashMap<String, Arc<RwLock<game::Game>>>,
@@ -215,6 +216,22 @@ impl Server {
             false
         }
     }
+    pub async fn load_world(&mut self, world_name: &str) -> bool {
+        if sql_loaders::check_if_world_exists(self.pool.clone(), world_name).await {
+            let g = game::Game::new(
+                "C:\\Users\\justin\\Code\\mmo\\raws",
+                self.pool.clone(),
+                world_name.to_owned(),
+            );
+            //insert the world into the database
+            let gmrwlock = Arc::new(RwLock::new(g));
+            let gmrwlock2 = gmrwlock.clone();
+            game::Game::start_game(gmrwlock).await;
+            self.game.insert(String::from(world_name), gmrwlock2);
+            return true;
+        }
+        false
+    }
     async fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
         match &request.get_dat() {
             ServerRequestType::CreateGame { world_name } => {
@@ -226,6 +243,24 @@ impl Server {
                         request
                             .handle(&ServerResponseType::Error {
                                 message: "World already exists",
+                            })
+                            .await;
+                    }
+                } else {
+                    request
+                        .handle(&ServerResponseType::PermissionDenied {})
+                        .await;
+                }
+            }
+            ServerRequestType::LoadGame { world_name } => {
+                if request.is_admin() {
+                    let mut guard = sv.write().await;
+                    if guard.load_world(&world_name).await {
+                        request.handle(&ServerResponseType::Ok {}).await;
+                    } else {
+                        request
+                            .handle(&ServerResponseType::Error {
+                                message: "World does not exist",
                             })
                             .await;
                     }
@@ -249,6 +284,37 @@ impl Server {
                     None => {
                         request.handle(&ServerResponseType::AuthFailure {}).await;
                     }
+                }
+            }
+            ServerRequestType::RegisterUser {
+                user,
+                password,
+                invite_code,
+            } => {
+                let guard = sv.read().await;
+                let policy = guard.visibility.clone();
+                drop(guard);
+                match policy {
+                    args::RegistrationPolicy::Public => {
+                        let guard = sv.write().await;
+                        if guard.create_user(&user, &password, false).await {
+                            request.handle(&ServerResponseType::Ok {}).await;
+                        } else {
+                            request
+                                .handle(&ServerResponseType::Error {
+                                    message: "User already exists",
+                                })
+                                .await;
+                        }
+                    }
+                    args::RegistrationPolicy::Closed => {
+                        request
+                            .handle(&ServerResponseType::Error {
+                                message: "Server is closed for new registrations",
+                            })
+                            .await;
+                    }
+                    args::RegistrationPolicy::InviteOnly => todo!(),
                 }
             }
             other => match request.get_world().to_owned() {
@@ -297,6 +363,7 @@ impl Server {
             game: HashMap::new(),
             key: key,
             open_streams: Vec::new(),
+            visibility: args.server_visibility.clone(),
         }
     }
     pub async fn run_game(self) {

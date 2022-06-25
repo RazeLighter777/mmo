@@ -35,4 +35,7 @@ impl Connection {
     pub async fn is_closed(&self) -> bool {
         false
     }
+    pub fn get_username(&self) -> &str {
+        &self.username
+    }
 }

@@ -12,7 +12,7 @@ use crate::raws::RawTree;
 use crate::registry::Registry;
 use crate::uuid_map::{self, UuidMap};
 use crate::{chunk_generator, chunk_map, player, position, position_map};
-use crate::{entity, uuid_system};
+use crate::{entity_id, uuid_system};
 //use crate::game;
 use crate::component;
 use crate::{raws, registry};
@@ -27,8 +27,12 @@ pub struct GameWorld {
     between_ticks_scheduler: bevy_ecs::schedule::Schedule,
 }
 
-impl GameWorld {
-    pub fn new(world_name: String, raws: raws::RawTree) -> Self {
+pub struct GameWorldBuilder {
+    world: GameWorld,
+}
+
+impl GameWorldBuilder {
+    pub fn new(world_id: &str) -> Self {
         let mut world = bevy_ecs::world::World::new();
         let mut schedule = bevy_ecs::schedule::Schedule::default();
         schedule.add_stage(
@@ -38,24 +42,45 @@ impl GameWorld {
                 .with_system(position_map::update_position_map_on_position_change)
                 .with_system(position_map::update_position_map_on_position_removal),
         );
-        world.insert_resource(raws);
+        let mut world = bevy_ecs::world::World::default();
         world.insert_resource(uuid_map::UuidMap::new());
         world.insert_resource(position_map::PositionMap::new());
         world.insert_resource(chunk_map::ChunkMap::new());
-        let res = Self {
-            world_id: world_name,
-            render_distance: 3,
-            world: world,
-            between_ticks_scheduler: schedule,
-        };
-        //resources.insert(res);
-        res
+        GameWorldBuilder {
+            world: GameWorld {
+                world: world,
+                render_distance: 10,
+                world_id: world_id.to_string(),
+                between_ticks_scheduler: schedule,
+            },
+        }
     }
+    pub fn with_world_id(mut self, world_id: String) -> Self {
+        self.world.world_id = world_id;
+        self
+    }
+    pub fn with_raws(mut self, raws: RawTree) -> Self {
+        self.world.world.insert_resource(raws);
+        self
+    }
+    pub fn with_render_distance(mut self, render_distance: i64) -> Self {
+        self.world.render_distance = render_distance;
+        self
+    }
+    pub fn with_between_ticks_scheduler(
+        mut self,
+        between_ticks_scheduler: bevy_ecs::schedule::Schedule,
+    ) -> Self {
+        self.world.between_ticks_scheduler = between_ticks_scheduler;
+        self
+    }
+    pub fn build(self) -> GameWorld {
+        self.world
+    }
+}
+impl GameWorld {
     pub fn get_world_name(&self) -> &str {
         &self.world_id
-    }
-    pub async fn unload_and_load_chunks(&mut self) {
-        todo!()
     }
 
     pub fn spawn(&mut self) -> EntityMut {
@@ -164,7 +189,7 @@ impl GameWorld {
 
     /**
      */
-    pub fn remove_entity(&mut self, iid: entity::EntityId) {
+    pub fn remove_entity(&mut self, iid: entity_id::EntityId) {
         let uuid_map = self.world.get_resource::<UuidMap>().unwrap();
         match uuid_map.get(iid) {
             Some(entity) => {
@@ -179,7 +204,7 @@ impl GameWorld {
         }
     }
 
-    pub fn get_entities_in_chunk(&self, chunk_id: chunk::ChunkId) -> Vec<entity::EntityId> {
+    pub fn get_entities_in_chunk(&self, chunk_id: chunk::ChunkId) -> Vec<entity_id::EntityId> {
         let mut entities = Vec::new();
         let mut position_map = self
             .world
