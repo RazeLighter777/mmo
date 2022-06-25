@@ -1,5 +1,5 @@
 use mmolib::{block_type, chunk::CHUNK_SIZE};
-
+#[derive(Debug)]
 pub struct FlatWorldGenerator {}
 
 impl FlatWorldGenerator {
@@ -11,10 +11,9 @@ impl mmolib::chunk_generator::ChunkGenerator for FlatWorldGenerator {
     fn generate_chunk(
         &self,
         chunk_id: mmolib::chunk::ChunkId,
-        world: &mmolib::world::World,
+        registry: &mmolib::registry::Registry,
     ) -> mmolib::chunk::Chunk {
-        let mut blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE] = [[world
-            .get_registry()
+        let mut blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE] = [[registry
             .get_block_type("stonefloor")
             .expect("could not find stone floor")
             .get_id();

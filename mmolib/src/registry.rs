@@ -2,22 +2,30 @@ use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
 use crate::component::ComponentTypeId;
+use crate::game_world::GameWorld;
 use crate::hashing;
 use crate::raws::Raw;
-use crate::world::World;
 use crate::{
     block_type,
-    component::{self, Component, ComponentDataType, ComponentInterface},
-    entity, pos,
+    component::{self, ComponentDataType},
+    entity,
     raws::RawTree,
 };
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_ecs::world::EntityMut;
+use bevy_reflect::serde::{ReflectDeserializer, ReflectSerializer};
+use bevy_reflect::{GetTypeRegistration, ReflectDeserialize, TypeRegistry, FromType, Reflect};
+use serde::de::{DeserializeOwned, DeserializeSeed};
+use serde::Deserialize;
 use serde_json::Value;
 
 pub type ComponentSerializationFunction =
-    fn(dat: Value, parent: entity::EntityId, world: &World) -> Vec<Box<dyn ComponentInterface>>;
+    fn(entity: &mut EntityMut, json: Value) -> Result<(), serde_json::Error>;
+
 pub struct Registry {
     block_types: HashMap<block_type::BlockTypeId, block_type::BlockType>,
-    component_types: HashMap<component::ComponentTypeId, ComponentSerializationFunction>,
+    type_registry: TypeRegistry,
+    ser_funcs: HashMap<String, ComponentSerializationFunction>,
 }
 
 pub struct RegistryBuilder {
@@ -29,20 +37,25 @@ impl RegistryBuilder {
         Self {
             registry: Registry {
                 block_types: HashMap::new(),
-                component_types: HashMap::new(),
+                type_registry: TypeRegistry::default(),
+                ser_funcs: HashMap::new(),
             },
         }
     }
-    pub fn with_component<T: ComponentDataType + 'static>(mut self) -> Self {
-        self.registry.component_types.insert(
-            component::get_type_id::<T>(),
-            |dat: Value, parent: entity::EntityId, world: &World| {
-                let x: T = serde_json::from_value(dat).expect(&format!(
-                    "Could not deserializae component of type {:?}",
-                    std::any::type_name::<T>()
-                ));
-                let comp = Component::<T>::new(x, parent, world);
-                comp
+    pub fn with_component<T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default>(
+        mut self,
+    ) -> Self {
+        //due to shitty docs, I didn't know you also needed to register ReflectComponent.
+        self.registry.type_registry.register::<T>();
+        let registration = self.registry.type_registry.get_mut(std::any::TypeId::of::<T>()).unwrap();
+        registration.insert(<ReflectComponent as FromType<T>>::from_type());
+
+        self.registry.ser_funcs.insert(
+            T::get_type_registration().name().to_owned(),
+            |mut entity, json| {
+                let v: T = serde_json::from_value(json)?;
+                entity.insert(v);
+                Ok(())
             },
         );
         self
@@ -63,6 +76,7 @@ impl RegistryBuilder {
         }
         self
     }
+
     pub fn build(self) -> Registry {
         self.registry
     }
@@ -72,16 +86,32 @@ impl Registry {
     pub fn get_block_type(&self, canonical_name: &str) -> Option<&block_type::BlockType> {
         self.block_types.get(&hashing::string_hash(canonical_name))
     }
-    pub fn generate_component(
+    pub fn type_registry(&self) -> &TypeRegistry {
+        &self.type_registry
+    }
+    pub fn add_component_to_entity(
         &self,
-        dat: Value,
-        entity_id: entity::EntityId,
-        type_id: ComponentTypeId,
-        world: &World,
-    ) -> Vec<Box<dyn ComponentInterface>> {
-        match self.component_types.get(&type_id) {
-            Some(gen) => gen(dat, entity_id, world),
-            None => Vec::new(),
+        entity: &mut EntityMut,
+        type_string: String,
+        json: Value,
+    ) -> () {
+        match self.type_registry.get_with_name(&type_string) {
+            Some(component_deserializer) => {
+                match self.ser_funcs.get(component_deserializer.name()) {
+                    Some(ser_func) => {
+                        ser_func(entity, json);
+                    }
+                    None => {
+                        println!(
+                            "No serialization function for component {}",
+                            component_deserializer.name()
+                        )
+                    }
+                }
+            }
+            None => {
+                println!("No component type with id");
+            }
         }
     }
 }
@@ -90,7 +120,6 @@ impl Registry {
 fn test_registry() {
     let rt = RawTree::new("./raws");
     let b = RegistryBuilder::new()
-        .with_component::<pos::Pos>()
         .load_block_raws(&["block".to_owned()], &rt)
         .build();
 }

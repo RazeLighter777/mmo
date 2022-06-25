@@ -74,7 +74,7 @@ impl RawTree {
             match self.subtrees.get(&path_remaining[0]) {
                 Some(tree) => return tree.search_for_all(&path_remaining[1..path_remaining.len()]),
                 None => {
-                    return Vec::new();
+                    return self.level.values().collect();
                 }
             }
         }

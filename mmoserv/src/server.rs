@@ -52,65 +52,6 @@ pub struct Server {
 }
 
 impl Server {
-    async fn initialize_database(&self) {
-        sqlx::query(
-            r"CREATE TABLE IF NOT EXISTS worlds (
-                world_id VARCHAR(50) PRIMARY KEY NOT NULL)",
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"CREATE TABLE IF NOT EXISTS users (
-                user_id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
-                user_name TEXT,
-                password_hash TEXT,
-                admin BOOLEAN)",
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"CREATE TABLE IF NOT EXISTS chunks (
-                chunk_id BIGINT UNSIGNED,
-                world_id VARCHAR(50)  NOT NULL,
-                chunk_dat BLOB,
-                loaded BOOLEAN,
-                FOREIGN KEY (world_id)
-                    REFERENCES worlds(world_id),
-                PRIMARY KEY (chunk_id,world_id))",
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"CREATE TABLE IF NOT EXISTS entities (
-                entity_id BIGINT UNSIGNED PRIMARY KEY,
-                chunk_id BIGINT UNSIGNED,
-                world_id VARCHAR(50) NOT NULL,
-                FOREIGN KEY(chunk_id) 
-                    REFERENCES chunks(chunk_id),
-                FOREIGN KEY(world_id)
-                    REFERENCES worlds(world_id)
-                )",
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"CREATE TABLE IF NOT EXISTS components (
-                component_id BIGINT UNSIGNED PRIMARY KEY,
-                type_id BIGINT UNSIGNED,
-                dat TEXT,
-                entity_id BIGINT UNSIGNED, 
-                FOREIGN KEY(entity_id) 
-                    REFERENCES entities(entity_id)
-                    ON DELETE CASCADE)",
-        )
-        .execute(&self.pool)
-        .await
-        .unwrap();
-    }
     pub async fn create_user(&self, username: &str, password: &str, is_admin: bool) -> bool {
         let pass = bcrypt::hash_with_result(password, 6).expect("Could not hash password");
         if !self.user_exists(username).await {
@@ -271,7 +212,6 @@ impl Server {
             self.game.insert(String::from(world_name), gmrwlock2);
             true
         } else {
-
             false
         }
     }
@@ -283,9 +223,11 @@ impl Server {
                     if guard.create_world(&world_name).await {
                         request.handle(&ServerResponseType::Ok {}).await;
                     } else {
-                        request.handle(&ServerResponseType::Error {
-                            message: "World already exists",
-                        }).await;
+                        request
+                            .handle(&ServerResponseType::Error {
+                                message: "World already exists",
+                            })
+                            .await;
                     }
                 } else {
                     request
@@ -358,7 +300,7 @@ impl Server {
         }
     }
     pub async fn run_game(self) {
-        self.initialize_database().await;
+        sql_loaders::initialize_database(self.pool.clone()).await;
         if !self.user_exists("admin").await {
             println!("Creating user admin with default password \"password\"");
             self.create_user("admin", "password", true).await;
