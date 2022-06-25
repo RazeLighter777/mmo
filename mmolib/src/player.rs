@@ -1,13 +1,13 @@
 use bevy_ecs::prelude::Component;
-use bevy_reflect::{Reflect};
-use serde::{Deserialize, Serialize};
+use bevy_reflect::Reflect;
 use bevy_reflect::ReflectDeserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Reflect, Default, Serialize, Deserialize, Clone, PartialEq, Debug, Component)]
 #[reflect_value(Serialize, PartialEq, Deserialize)]
 pub struct Player {
-    username: String,
-    last_ping_timestamp: u64,
+    pub username: String,
+    pub last_ping_timestamp: u64,
 }
 
 impl Player {

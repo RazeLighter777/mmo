@@ -1,18 +1,15 @@
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    hash::{BuildHasher, Hasher},
-    sync::Arc,
-};
+use std::fmt::Display;
 
 use bevy_ecs::prelude::Component;
-use serde::Deserialize;
-
-//use crate::world::World;
-use crate::{game_world::GameWorld, registry::Registry};
+use bevy_reflect::Reflect;
+use bevy_reflect::ReflectDeserialize;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
-#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, Debug, Component)]
+#[derive(
+    Reflect, Default, Serialize, Deserialize, Clone, PartialEq, Debug, Component, Eq, Hash, Copy,
+)]
+#[reflect_value(Serialize, PartialEq, Deserialize)]
 pub struct EntityId(u64);
 
 impl Display for EntityId {

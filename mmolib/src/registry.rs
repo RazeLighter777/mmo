@@ -13,8 +13,8 @@ use crate::{
 };
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_ecs::world::EntityMut;
-use bevy_reflect::serde::{ReflectSerializer, ReflectDeserializer};
-use bevy_reflect::{TypeRegistry, GetTypeRegistration, ReflectDeserialize};
+use bevy_reflect::serde::{ReflectDeserializer, ReflectSerializer};
+use bevy_reflect::{GetTypeRegistration, ReflectDeserialize, TypeRegistry, FromType, Reflect};
 use serde::de::{DeserializeOwned, DeserializeSeed};
 use serde::Deserialize;
 use serde_json::Value;
@@ -25,7 +25,7 @@ pub type ComponentSerializationFunction =
 pub struct Registry {
     block_types: HashMap<block_type::BlockTypeId, block_type::BlockType>,
     type_registry: TypeRegistry,
-    ser_funcs : HashMap<String, ComponentSerializationFunction>
+    ser_funcs: HashMap<String, ComponentSerializationFunction>,
 }
 
 pub struct RegistryBuilder {
@@ -38,19 +38,26 @@ impl RegistryBuilder {
             registry: Registry {
                 block_types: HashMap::new(),
                 type_registry: TypeRegistry::default(),
-                ser_funcs : HashMap::new()
+                ser_funcs: HashMap::new(),
             },
         }
     }
-    pub fn with_component<T: 'static + DeserializeOwned + Component + GetTypeRegistration>(
+    pub fn with_component<T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default>(
         mut self,
     ) -> Self {
+        //due to shitty docs, I didn't know you also needed to register ReflectComponent.
         self.registry.type_registry.register::<T>();
-        self.registry.ser_funcs.insert(T::get_type_registration().name().to_owned(), |mut entity, json| {
-            let v : T = serde_json::from_value(json)?;
-            entity.insert(v);
-            Ok(())
-        } );
+        let registration = self.registry.type_registry.get_mut(std::any::TypeId::of::<T>()).unwrap();
+        registration.insert(<ReflectComponent as FromType<T>>::from_type());
+
+        self.registry.ser_funcs.insert(
+            T::get_type_registration().name().to_owned(),
+            |mut entity, json| {
+                let v: T = serde_json::from_value(json)?;
+                entity.insert(v);
+                Ok(())
+            },
+        );
         self
     }
     pub fn load_block_raws(mut self, path: &[String], raws: &RawTree) -> RegistryBuilder {
@@ -85,7 +92,7 @@ impl Registry {
     pub fn add_component_to_entity(
         &self,
         entity: &mut EntityMut,
-        type_string : String,
+        type_string: String,
         json: Value,
     ) -> () {
         match self.type_registry.get_with_name(&type_string) {
@@ -95,7 +102,10 @@ impl Registry {
                         ser_func(entity, json);
                     }
                     None => {
-                        println!("No serialization function for component {}", component_deserializer.name())
+                        println!(
+                            "No serialization function for component {}",
+                            component_deserializer.name()
+                        )
                     }
                 }
             }

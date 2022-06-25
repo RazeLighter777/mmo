@@ -21,6 +21,9 @@ impl UuidMap {
         self.entity_to_uuid.insert(entity, uuid);
     }
 
+    pub fn get_by_entity(&self, entity: Entity) -> Option<EntityId> {
+        self.entity_to_uuid.get(&entity).cloned()
+    }
     pub fn get(&self, uuid: EntityId) -> Option<&Entity> {
         self.uuid_to_entity.get(&uuid)
     }

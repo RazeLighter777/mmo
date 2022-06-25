@@ -12,8 +12,6 @@ pub const CHUNK_SIZE: usize = 32;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Chunk {
     blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE],
-    #[serde(skip_serializing)]
-    entity_position_cache: HashSet<entity::EntityId>,
 }
 
 pub struct LocationAttributes {
@@ -28,22 +26,7 @@ impl Chunk {
         Ok(res)
     }
     pub fn new_from_array(blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE]) -> Self {
-        Self {
-            blocks: blocks,
-            entity_position_cache: HashSet::new(),
-        }
-    }
-    pub fn contains(&self, entity: entity::EntityId) -> bool {
-        self.entity_position_cache.contains(&entity)
-    }
-    pub fn add(&mut self, entity: entity::EntityId) {
-        self.entity_position_cache.insert(entity);
-    }
-    pub fn remove(&mut self, entity: entity::EntityId) -> bool {
-        self.entity_position_cache.remove(&entity)
-    }
-    pub fn get_entities(&self) -> Vec<entity::EntityId> {
-        self.entity_position_cache.iter().cloned().collect()
+        Self { blocks: blocks }
     }
 }
 #[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, Debug)]

@@ -21,4 +21,10 @@ impl ChunkMap {
     pub fn remove(&mut self, chunk_id: ChunkId) -> Option<Chunk> {
         self.chunks.remove(&chunk_id)
     }
+    pub fn contains(&self, chunk_id: ChunkId) -> bool {
+        self.chunks.contains_key(&chunk_id)
+    }
+    pub fn get_loaded_chunks(&self) -> Vec<&ChunkId> {
+        self.chunks.keys().collect()
+    }
 }

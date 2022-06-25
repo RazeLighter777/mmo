@@ -52,7 +52,6 @@ pub struct Server {
 }
 
 impl Server {
-   
     pub async fn create_user(&self, username: &str, password: &str, is_admin: bool) -> bool {
         let pass = bcrypt::hash_with_result(password, 6).expect("Could not hash password");
         if !self.user_exists(username).await {

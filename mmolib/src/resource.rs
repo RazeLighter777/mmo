@@ -16,11 +16,11 @@ pub enum ResourceType {
     Animation(&'static [&'static str]),
     Sound(&'static str, f32),
     RotationalImage {
-        left : &'static str,
-        right : &'static str,
-        front : &'static str,
-        back : &'static str,
-    }
+        left: &'static str,
+        right: &'static str,
+        front: &'static str,
+        back: &'static str,
+    },
 }
 pub fn spawn_resource_map() -> HashMap<ResourceId, ResourceType> {
     [
