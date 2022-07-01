@@ -1,30 +1,39 @@
+use std::cell::RefCell;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
 use std::future::join;
 use std::hash::Hash;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
 use crate::chunk::{self, Chunk};
 use crate::chunk_map::ChunkMap;
+use crate::entity_id::EntityId;
 use crate::raws::RawTree;
 use crate::registry::Registry;
 use crate::uuid_map::{self, UuidMap};
-use crate::{chunk_generator, chunk_map, player, position, position_map};
+use crate::{chunk_generator, chunk_map, entity_deletion_list, player, position, position_map};
 use crate::{entity_id, uuid_system};
 //use crate::game;
 use crate::component;
 use crate::{raws, registry};
-use bevy_ecs::schedule::SystemStage;
+use bevy_ecs::event::Events;
+use bevy_ecs::prelude::{Entity, IntoSystem, World};
+use bevy_ecs::schedule::{IntoSystemDescriptor, SystemStage};
 use bevy_ecs::world::EntityMut;
 use serde_json::Value;
 
+type EventUpdateClosure = Box<dyn Fn(&mut World) -> () + Send + Sync>;
 pub struct GameWorld {
     world: bevy_ecs::world::World,
     render_distance: i64,
     world_id: String,
     between_ticks_scheduler: bevy_ecs::schedule::Schedule,
+    pre_update_schedule: bevy_ecs::schedule::Schedule,
+    post_update_schedule: bevy_ecs::schedule::Schedule,
+    event_update_closures: Vec<EventUpdateClosure>,
 }
 
 pub struct GameWorldBuilder {
@@ -35,6 +44,10 @@ impl GameWorldBuilder {
     pub fn new(world_id: &str) -> Self {
         let mut world = bevy_ecs::world::World::new();
         let mut schedule = bevy_ecs::schedule::Schedule::default();
+        let mut pre_schedule = bevy_ecs::schedule::Schedule::default();
+        pre_schedule.add_stage("update", SystemStage::parallel());
+        let mut post_schedule = bevy_ecs::schedule::Schedule::default();
+        post_schedule.add_stage("update", SystemStage::single_threaded());
         schedule.add_stage(
             "update",
             SystemStage::parallel()
@@ -46,14 +59,48 @@ impl GameWorldBuilder {
         world.insert_resource(uuid_map::UuidMap::new());
         world.insert_resource(position_map::PositionMap::new());
         world.insert_resource(chunk_map::ChunkMap::new());
+        world.insert_resource(entity_deletion_list::EntityDeletionList::new());
         GameWorldBuilder {
             world: GameWorld {
                 world: world,
                 render_distance: 10,
                 world_id: world_id.to_string(),
                 between_ticks_scheduler: schedule,
+                pre_update_schedule: pre_schedule,
+                post_update_schedule: post_schedule,
+                event_update_closures: Vec::new(),
             },
         }
+    }
+    pub fn add_pre_update_system<Params>(
+        mut self,
+        system: impl IntoSystemDescriptor<Params>,
+    ) -> Self {
+        self.world
+            .pre_update_schedule
+            .add_system_to_stage("update", system);
+        self
+    }
+    pub fn add_event<EventType: Send + Sync + 'static>(mut self) -> Self {
+        self.world
+            .world
+            .insert_resource(Events::<EventType>::default());
+        self.world
+            .event_update_closures
+            .push(Box::new(move |mut world| {
+                let mut events = world.get_resource_mut::<Events<EventType>>().unwrap();
+                events.update();
+            }));
+        self
+    }
+    pub fn add_post_update_system<Params>(
+        mut self,
+        system: impl IntoSystemDescriptor<Params>,
+    ) -> Self {
+        self.world
+            .post_update_schedule
+            .add_system_to_stage("update", system);
+        self
     }
     pub fn with_world_id(mut self, world_id: String) -> Self {
         self.world.world_id = world_id;
@@ -84,11 +131,32 @@ impl GameWorld {
     }
 
     pub fn spawn(&mut self) -> EntityMut {
-        self.world.spawn()
+        let mut res = self.world.spawn().id().clone();
+        let entity_id = entity_id::EntityId::new();
+        //get uuid map and insert it
+        self.world
+            .get_resource_mut::<uuid_map::UuidMap>()
+            .unwrap()
+            .add(entity_id, res);
+        let mut r = self.world.entity_mut(res);
+        r.insert(entity_id);
+        r
+    }
+
+    pub fn run_event_update_closures(&mut self) {
+        self.event_update_closures.iter().for_each(|x| {
+            x(&mut self.world);
+        });
     }
 
     pub fn get_world(&self) -> &bevy_ecs::world::World {
         &self.world
+    }
+    pub fn get_entities_scheduled_for_deletion(&mut self) -> Vec<EntityId> {
+        self.world
+            .get_resource_mut::<entity_deletion_list::EntityDeletionList>()
+            .unwrap()
+            .get_entities()
     }
     pub fn insert_chunk(&mut self, pair: (chunk::ChunkId, Chunk)) {
         self.world
@@ -99,7 +167,31 @@ impl GameWorld {
     pub fn run_between_ticks_scheduler(&mut self) {
         self.between_ticks_scheduler.run_once(&mut self.world);
     }
-
+    pub fn run_pre_update_scheduler(&mut self) {
+        self.pre_update_schedule.run_once(&mut self.world);
+    }
+    pub fn run_post_update_scheduler(&mut self) {
+        self.post_update_schedule.run_once(&mut self.world);
+    }
+    pub fn despawn_entity_by_entity_id(&mut self, entity_id: EntityId) {
+        let e = self.get_uuid_map().get(entity_id).map(|x| *x);
+        match e {
+            Some(ent) => {
+                self.world
+                    .get_resource_mut::<position_map::PositionMap>()
+                    .unwrap()
+                    .remove(ent);
+                self.world
+                    .get_resource_mut::<uuid_map::UuidMap>()
+                    .unwrap()
+                    .remove(ent);
+                self.world.despawn(ent);
+            }
+            None => {
+                println!("Tried to despawn an entity that was not in the world");
+            }
+        }
+    }
     pub fn get_world_mut(&mut self) -> &mut bevy_ecs::world::World {
         &mut self.world
     }
@@ -139,18 +231,21 @@ impl GameWorld {
 
     pub fn clear_trackers(&mut self) -> () {
         self.world.clear_trackers();
+        self.world
+            .get_resource_mut::<chunk_map::ChunkMap>()
+            .unwrap()
+            .clear_trackers();
     }
 
     /**
      * Gets all chunks in a radius of a position.
      */
-    fn get_chunks_in_radius_of_position(
+    pub fn get_chunks_in_radius_of_position(
         render_distance: i64,
         position: (u32, u32),
     ) -> Vec<chunk::ChunkId> {
         let mut chunks_that_should_be_loaded = Vec::new();
         for x in (-render_distance)..render_distance {
-            println!("Entered");
             for y in (-render_distance)..render_distance {
                 let mut posx = position.0;
                 let mut posy = position.1;
@@ -182,7 +277,6 @@ impl GameWorld {
                 pos.pos,
             ));
         }
-        println!("{:?}", chunk_ids);
         chunk_ids
     }
     fn add_entity_to_position_map_if_has_position(&mut self) {}
@@ -214,7 +308,9 @@ impl GameWorld {
         match position_map.get_entities_in_chunk(chunk_id) {
             Some(map) => {
                 for entity in position_map.get_entities_in_chunk(chunk_id).unwrap() {
-                    entities.push(uuid_map.get_by_entity(*entity).unwrap());
+                    entities.push(uuid_map.get_by_entity(*entity).expect(
+                        "Entity had id component but it wasn't registired in the uuid map",
+                    ));
                 }
                 entities
             }

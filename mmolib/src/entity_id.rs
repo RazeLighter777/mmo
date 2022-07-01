@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::FromWorld;
 use bevy_reflect::Reflect;
 use bevy_reflect::ReflectDeserialize;
 use rand::Rng;

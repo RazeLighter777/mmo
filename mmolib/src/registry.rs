@@ -47,6 +47,25 @@ impl RegistryBuilder {
         result = result.with_component::<entity_id::EntityId>();
         result
     }
+    pub fn with_component_and_callback<
+        T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default,
+    >(
+        mut self,
+        func: ComponentSerializationFunction,
+    ) -> Self {
+        self.registry.type_registry.register::<T>();
+        let registration = self
+            .registry
+            .type_registry
+            .get_mut(std::any::TypeId::of::<T>())
+            .unwrap();
+        registration.insert(<ReflectComponent as FromType<T>>::from_type());
+
+        self.registry
+            .ser_funcs
+            .insert(T::get_type_registration().name().to_owned(), func);
+        self
+    }
     pub fn with_component<
         T: 'static + DeserializeOwned + Component + GetTypeRegistration + Reflect + Default,
     >(
@@ -81,7 +100,7 @@ impl RegistryBuilder {
                         .insert(hashing::string_hash(b.get_canonical_name()), b);
                 }
                 Err(e) => {
-                    println!("Error deserializing block type {}", e)
+                    panic!("Error deserializing block type {}", e)
                 }
             }
         }
@@ -113,7 +132,7 @@ impl Registry {
                         ser_func(entity, json);
                     }
                     None => {
-                        println!(
+                        panic!(
                             "No serialization function for component {}",
                             component_deserializer.name()
                         )
@@ -121,7 +140,7 @@ impl Registry {
                 }
             }
             None => {
-                println!("No component type with id");
+                panic!("No component type with id");
             }
         }
     }

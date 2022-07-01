@@ -6,6 +6,8 @@ use crate::sql_loaders;
 use futures::task::noop_waker;
 use mmolib::server_request_type::ServerRequestType;
 use mmolib::server_response_type::ServerResponseType;
+use sqlx::mysql::MySqlConnectOptions;
+use sqlx::ConnectOptions;
 use tokio::runtime::Handle;
 use tokio::sync::RwLock;
 //use tokio::prelude::*;
@@ -15,7 +17,6 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 use jsonwebtoken::TokenData;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use log::{info, warn};
 use tokio::task;
 
 use futures::prelude::*;
@@ -39,8 +40,15 @@ use std::task::Context;
 use std::thread::park;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
+use tokio_tungstenite::tungstenite::http::request;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
+use tracing::event;
+use tracing::info;
+use tracing::span;
+use tracing::trace;
+use tracing::warn;
+use tracing::Level;
 
 pub struct Server {
     visibility: args::RegistrationPolicy,
@@ -84,7 +92,7 @@ impl Server {
         match token {
             Ok(tok) => Some(tok.claims),
             Err(e) => {
-                println!("{}", e);
+                warn!("Client had invalid server claims {}", e);
                 None
             }
         }
@@ -101,10 +109,9 @@ impl Server {
                 let u: &str = r.try_get("password_hash").unwrap();
                 let admin: bool = r.try_get("admin").unwrap();
                 user = Some((u.to_owned(), admin));
-                println!("get");
             }
             None => {
-                println!("got");
+                info!("Tried to login as user {} which does not exist", username);
             }
         }
         match user {
@@ -130,16 +137,18 @@ impl Server {
                 }
 
                 Err(_) => {
-                    println!("Failed sesssion verification attempt for {}", username);
+                    info!("Failed sesssion verification attempt for {}", username);
                 }
             },
             None => {
-                println!("No such user found in database {}", username);
+                info!("No such user found in database {}", username);
             }
         }
         None
     }
     async fn listen_thread(listener: TcpListener, sv: Arc<RwLock<Self>>) {
+        let span = span!(Level::INFO, "server_listen_thread");
+        let _guard = span.enter();
         let lk = sv.read().await;
         let key = lk.key.clone();
         drop(lk);
@@ -151,6 +160,7 @@ impl Server {
                 task::spawn(async move {
                     let (wsw, mut wsr) = tokio_tungstenite::accept_async(conn)
                         .await
+                        //todo: handle error if weird non ws connection   
                         .expect("Could not listen on the websocket connection")
                         .split();
                     //there can be multiple connection senders, but only one reader. That's why ws write (wsw) is in an arc.
@@ -172,25 +182,30 @@ impl Server {
                                                         .await;
                                                 }
                                                 Err(_) => {
-                                                    println!("Was valid json but not valid server request");
+                                                    event!(Level::INFO, "Client sent valid json but invalid request");
                                                 }
                                             }
                                         }
                                         Err(_) => {
-                                            println!("Was not valid json");
+                                            event!(Level::INFO, "Client send invalid json");
                                         }
                                     },
                                     Err(_) => {
-                                        println!("Websocket message was not text");
+                                        event!(
+                                            Level::INFO,
+                                            "Client sent invalid websocket message type"
+                                        );
                                     }
                                 },
                                 Err(_) => {
-                                    println!("Connection closed");
+                                    event!(Level::INFO, "Client closed a connection");
+                                    wsw.write().await.close().await;
                                     break;
                                 }
                             },
                             None => {
-                                println!("Could not await next message from websocket reader");
+                                event!(Level::INFO, "Could not await the next message from reader, closing connection");
+                                wsw.write().await.close().await;
                                 break;
                             }
                         }
@@ -232,42 +247,43 @@ impl Server {
         }
         false
     }
-    async fn worker_thread(request: ServerRequest, sv: Arc<RwLock<Self>>) {
-        match &request.get_dat() {
+    async fn worker_thread(req: ServerRequest, sv: Arc<RwLock<Self>>) {
+        let span = span!(
+            Level::INFO,
+            "server_request",
+            request = std::format!("{}", req).as_str()
+        );
+        let _guard = span.enter();
+
+        match &req.get_dat() {
             ServerRequestType::CreateGame { world_name } => {
-                if request.is_admin() {
+                if req.is_admin() {
                     let mut guard = sv.write().await;
                     if guard.create_world(&world_name).await {
-                        request.handle(&ServerResponseType::Ok {}).await;
+                        req.handle(&ServerResponseType::Ok {}).await;
                     } else {
-                        request
-                            .handle(&ServerResponseType::Error {
-                                message: "World already exists",
-                            })
-                            .await;
+                        req.handle(&ServerResponseType::Error {
+                            message: "World already exists",
+                        })
+                        .await;
                     }
                 } else {
-                    request
-                        .handle(&ServerResponseType::PermissionDenied {})
-                        .await;
+                    req.handle(&ServerResponseType::PermissionDenied {}).await;
                 }
             }
             ServerRequestType::LoadGame { world_name } => {
-                if request.is_admin() {
+                if req.is_admin() {
                     let mut guard = sv.write().await;
                     if guard.load_world(&world_name).await {
-                        request.handle(&ServerResponseType::Ok {}).await;
+                        req.handle(&ServerResponseType::Ok {}).await;
                     } else {
-                        request
-                            .handle(&ServerResponseType::Error {
-                                message: "World does not exist",
-                            })
-                            .await;
+                        req.handle(&ServerResponseType::Error {
+                            message: "World does not exist",
+                        })
+                        .await;
                     }
                 } else {
-                    request
-                        .handle(&ServerResponseType::PermissionDenied {})
-                        .await;
+                    req.handle(&ServerResponseType::PermissionDenied {}).await;
                 }
             }
             ServerRequestType::Login { user, password } => {
@@ -275,14 +291,13 @@ impl Server {
                 let x = guard.generate_session(&user, &password).await;
                 match x {
                     Some(token) => {
-                        request
-                            .handle(&ServerResponseType::AuthSuccess {
-                                session_token: token,
-                            })
-                            .await;
+                        req.handle(&ServerResponseType::AuthSuccess {
+                            session_token: token,
+                        })
+                        .await;
                     }
                     None => {
-                        request.handle(&ServerResponseType::AuthFailure {}).await;
+                        req.handle(&ServerResponseType::AuthFailure {}).await;
                     }
                 }
             }
@@ -298,42 +313,40 @@ impl Server {
                     args::RegistrationPolicy::Public => {
                         let guard = sv.write().await;
                         if guard.create_user(&user, &password, false).await {
-                            request.handle(&ServerResponseType::Ok {}).await;
+                            req.handle(&ServerResponseType::Ok {}).await;
                         } else {
-                            request
-                                .handle(&ServerResponseType::Error {
-                                    message: "User already exists",
-                                })
-                                .await;
+                            req.handle(&ServerResponseType::Error {
+                                message: "User already exists",
+                            })
+                            .await;
                         }
                     }
                     args::RegistrationPolicy::Closed => {
-                        request
-                            .handle(&ServerResponseType::Error {
-                                message: "Server is closed for new registrations",
-                            })
-                            .await;
+                        req.handle(&ServerResponseType::Error {
+                            message: "Server is closed for new registrations",
+                        })
+                        .await;
                     }
                     args::RegistrationPolicy::InviteOnly => todo!(),
                 }
             }
-            other => match request.get_world().to_owned() {
+            other => match req.get_world().map(str::to_string) {
                 Some(world_name) => {
                     let guard = sv.read().await;
                     match guard.game.get(&world_name) {
-                        Some(gm) => match request.get_user() {
+                        Some(gm) => match req.get_user() {
                             Some(user) => {
                                 let gmc = gm.clone();
-                                game::Game::handle(gmc, request).await;
+                                game::Game::handle(gmc, req).await;
                             }
                             None => {
-                                request.handle(&ServerResponseType::AuthFailure {}).await;
-                                println!("User must be logged in to join {}", &world_name);
+                                req.handle(&ServerResponseType::AuthFailure {}).await;
+                                trace!("User must be logged in to join {}", &world_name);
                             }
                         },
                         None => {
-                            request.handle(&ServerResponseType::AuthFailure {}).await;
-                            println!("World {} doesn't exist yet", &world_name);
+                            req.handle(&ServerResponseType::AuthFailure {}).await;
+                            trace!("World {} doesn't exist yet", &world_name);
                         }
                     }
                 }
@@ -349,13 +362,20 @@ impl Server {
             "mysql://{}:{}@{}/{}",
             args.database_user, args.database_pass, args.database_host, args.database_name
         );
-        println!("Connecting to database at {}", args.database_host);
-        let pool = MySqlPoolOptions::new()
+        info!("Connecting to database at {}", dburl);
+        let mut opts = MySqlConnectOptions::new()
+            .host(&args.database_host)
+            .username(&args.database_user)
+            .database(&args.database_name)
+            .password(&args.database_pass);
+        opts.disable_statement_logging();
+
+        let mut pool = MySqlPoolOptions::new()
             .max_connections(5)
-            .connect(&dburl)
+            .connect_with(opts)
             .await
             .expect("Could not get db conn");
-        println!("Connection establised");
+        info!("Database connection established");
         Self {
             dburl: dburl,
             listen_url: format!("{}:{}", args.ip, args.port),
@@ -369,7 +389,7 @@ impl Server {
     pub async fn run_game(self) {
         sql_loaders::initialize_database(self.pool.clone()).await;
         if !self.user_exists("admin").await {
-            println!("Creating user admin with default password \"password\"");
+            warn!("Creating user admin with default password \"password\"");
             self.create_user("admin", "password", true).await;
         }
         let listener = TcpListener::bind(&self.listen_url)

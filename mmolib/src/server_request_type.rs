@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
-#[derive(Serialize, Deserialize)]
+
+use crate::entity_id::EntityId;
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum ServerRequestType {
     CreateGame {
+        world_name: String,
+    },
+    PlayerList {
         world_name: String,
     },
     Login {
@@ -23,10 +28,39 @@ pub enum ServerRequestType {
         world_name: String,
         message: String,
     },
+    Spawn {
+        world_name: String,
+        player_parameters: String,
+    },
     RegisterUser {
         user: String,
         password: String,
         invite_code: Option<String>,
     },
     GetUserInviteCode {},
+    PlayerAction {
+        world_name: String,
+        action: PlayerActionType,
+    },
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Direction {
+    North,
+    East,
+    South,
+    West,
+    Northeast,
+    Southeast,
+    Southwest,
+    Northwest,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
+pub enum PlayerActionType {
+    Move(Direction),
+    Attack(EntityId),
+    UseOn { item: EntityId, target: EntityId },
+    Pickup(EntityId),
+    Drop(EntityId),
 }

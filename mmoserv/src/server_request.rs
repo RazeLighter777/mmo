@@ -4,15 +4,17 @@ use jsonwebtoken::{decode, DecodingKey, TokenData, Validation};
 use mmolib::{server_request_type::ServerRequestType, server_response_type::ServerResponseType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{
     tungstenite::{Message, WebSocket},
     WebSocketStream,
 };
+use tracing::{info, span, Level};
 
 use crate::connection;
 
+#[derive(Debug)]
 pub struct ServerRequest {
     dat: ServerRequestType,
     world: Option<String>,
@@ -75,8 +77,8 @@ impl ServerRequest {
     pub fn get_dat(&self) -> &ServerRequestType {
         &self.dat
     }
-    pub fn get_world(&self) -> &Option<String> {
-        &self.world
+    pub fn get_world(&self) -> Option<&str> {
+        self.world.as_deref()
     }
     pub fn get_connection(&self) -> connection::Connection {
         connection::Connection::new(self.connnection_lock.clone(), self.get_user().unwrap_or(""))
@@ -84,10 +86,11 @@ impl ServerRequest {
     pub async fn handle(self, request_dat: &ServerResponseType) {
         let lk = self.connnection_lock.write();
         let request_json = serde_json::to_string(request_dat).unwrap();
+        info!("Sent response: {}", request_json);
         lk.await.send(Message::Text(request_json)).await;
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ServerClaims {
     pub user_name: String,
     pub is_admin: bool,
@@ -96,4 +99,16 @@ pub struct ServerClaims {
 pub struct User {
     pub user_name: String,
     pub user_pass: String,
+}
+
+impl Display for ServerRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let r = std::format!(
+            "REQUEST[user:{},world:{},dat:{:?}]",
+            self.get_user().unwrap_or("anonymous"),
+            self.get_world().unwrap_or("null"),
+            self.get_dat()
+        );
+        write!(f, "{}", r)
+    }
 }

@@ -3,7 +3,8 @@ use std::{any::Any, sync::Arc};
 use bevy_ecs::{prelude::ReflectComponent, world::EntityMut};
 use mmolib::{
     chunk::{self, Chunk, ChunkId},
-    component, entity_id,
+    component,
+    entity_id::{self, EntityId},
     game_world::{self, GameWorld},
     hashing,
     raws::RawTree,
@@ -12,6 +13,7 @@ use mmolib::{
 };
 use serde_json::Value;
 use sqlx::{MySql, Pool, Row, Transaction};
+use tracing::warn;
 
 pub async fn create_world(conn: Pool<MySql>, world_id: &str) -> bool {
     let r = sqlx::query("INSERT INTO worlds (world_id) VALUES (?)")
@@ -89,7 +91,49 @@ pub async fn initialize_database(conn: Pool<MySql>) {
     .execute(&conn)
     .await
     .unwrap();
+    sqlx::query(
+        r"CREATE TABLE IF NOT EXISTS players (
+            player_id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+            user_id INT,
+            entity_id BIGINT UNSIGNED,
+            FOREIGN KEY(user_id) 
+                REFERENCES users(user_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(entity_id) 
+                REFERENCES entities(entity_id)
+                ON DELETE CASCADE)",
+    )
+    .execute(&conn)
+    .await
+    .expect("Could not create players table");
 }
+
+pub async fn check_if_player_exists_in_world(
+    conn: Pool<MySql>,
+    world_id: &str,
+    username: &str,
+) -> Option<EntityId> {
+    let r = sqlx::query("SELECT entities.entity_id FROM players JOIN entities ON players.entity_id = entities.entity_id JOIN users ON players.user_id = users.user_id WHERE users.user_name = ? AND entities.world_id = ?")
+        .bind(username)
+        .bind(world_id)
+        .fetch_one(&conn)
+        .await;
+    match r {
+        Ok(row) => Some(entity_id::EntityId::new_with_number(row.get("entity_id"))),
+        Err(_) => None,
+    }
+}
+
+pub async fn spawn_player(conn: Pool<MySql>, username: &str, entity_id: EntityId) -> bool {
+    let r = sqlx::query("INSERT INTO players (user_id,entity_id) VALUES ((SELECT user_id FROM users WHERE user_name = ?),?)")
+        .bind(username)
+        .bind(entity_id.id())
+        .execute(&conn)
+        .await
+        .expect("could not spawn player");
+    true
+}
+
 pub async fn load_entity(
     conn: Pool<MySql>,
     entity_id: entity_id::EntityId,
@@ -100,12 +144,19 @@ pub async fn load_entity(
         .bind(entity_id.id())
         .fetch_all(&conn)
         .await.unwrap();
+    let ent = &mut world.spawn();
+    let ent_id = ent.id();
     for row in rows {
         let dat: String = row.try_get("dat").unwrap();
         let dat = serde_json::from_str(&dat).unwrap();
         let type_string = row.try_get("type_id").expect("Could not query type_id");
-        registry.add_component_to_entity(&mut world.spawn(), type_string, dat);
+        registry.add_component_to_entity(ent, type_string, dat);
     }
+    world
+        .get_world_mut()
+        .get_resource_mut::<uuid_map::UuidMap>()
+        .unwrap()
+        .add(entity_id, ent_id);
 }
 pub async fn retreive_all_loaded_chunks_and_entities(
     conn: &Pool<MySql>,
@@ -125,7 +176,7 @@ pub async fn retreive_all_loaded_chunks_and_entities(
                 chunks.push((ChunkId::new_raw(chunk_id), chunk));
             }
             None => {
-                println!("Error loading chunk");
+                tracing::error!("Error loading chunk");
             }
         }
     }
@@ -246,40 +297,47 @@ pub async fn save_entity<'a>(
     let mut results: Vec<(String, String, u64)> = Vec::new();
     //moved out to seperate block because can't call await while !Send values are in scope, which are specifically bevy internal items.
     {
-        let entity_ref = world.get_world().get_entity(ent).unwrap();
-        let archtype = entity_ref.archetype();
-        for id in archtype.components() {
-            let mut component_long_name_string: String = "".to_owned();
-            match world
-                .get_world()
-                .components()
-                .get_info(id)
-                .and_then(|info| registry.type_registry().get(info.type_id().unwrap()))
-                .and_then(|registration| {
-                    component_long_name_string = registration.name().to_owned();
-                    println!("type: {}", &component_long_name_string);
-                    registration.data::<ReflectComponent>()
-                }) {
-                Some(reflect_component) => {
-                    let reflect = reflect_component
-                        .reflect_component(world.get_world(), ent)
-                        .and_then(|refl| refl.serializable())
-                        .unwrap();
-                    let ser = reflect.borrow();
-                    let ser = serde_json::to_string(&ser).unwrap();
-                    println!("Serialization : {}", &ser);
-                    //let ser = ser.get("value").unwrap();
-                    results.push((component_long_name_string.to_owned(), ser, entity_id.id()));
-                }
-                None => {
-                    println!("Could not find component info for {:?}", id);
+        match world.get_world().get_entity(ent) {
+            Some(entity_ref) => {
+                let archtype = entity_ref.archetype();
+                for id in archtype.components() {
+                    let mut component_long_name_string: String = "".to_owned();
+                    match world
+                        .get_world()
+                        .components()
+                        .get_info(id)
+                        .and_then(|info| registry.type_registry().get(info.type_id().unwrap()))
+                        .and_then(|registration| {
+                            component_long_name_string = registration.name().to_owned();
+                            registration.data::<ReflectComponent>()
+                        }) {
+                        Some(reflect_component) => {
+                            let reflect = reflect_component
+                                .reflect_component(world.get_world(), ent)
+                                .and_then(|refl| refl.serializable())
+                                .unwrap();
+                            let ser = reflect.borrow();
+                            let ser = serde_json::to_string(&ser).unwrap();
+                            //let ser = ser.get("value").unwrap();
+                            results.push((
+                                component_long_name_string.to_owned(),
+                                ser,
+                                entity_id.id(),
+                            ));
+                        }
+                        None => {
+                            warn!("Could not find component info for {:?}", id);
+                        }
+                    }
                 }
             }
+            None => {
+                warn!("Could not find entity {:?}", ent);
+            }
         }
-    }
 
-    for (component_type, serialization, entity_id) in results {
-        sqlx::query(
+        for (component_type, serialization, entity_id) in results {
+            sqlx::query(
             "INSERT INTO components (type_id, dat, entity_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE type_id=type_id",
         )
         .bind(&component_type)
@@ -287,18 +345,15 @@ pub async fn save_entity<'a>(
         .bind(entity_id)
         .execute(&conn)
         .await.expect("Could not insert into component table");
+        }
     }
 }
-pub async fn delete_entity<'a>(
-    mut tx: Transaction<'a, MySql>,
-    entity_id: entity_id::EntityId,
-) -> Transaction<'a, MySql> {
+pub async fn delete_entity<'a>(mut tx: Pool<MySql>, entity_id: entity_id::EntityId) {
     let r = sqlx::query("DELETE FROM entities WHERE entities.entity_id = ?")
         .bind(entity_id.id())
-        .execute(&mut tx)
+        .execute(&tx)
         .await
         .expect("Could not delete entity from table");
-    tx
 }
 pub async fn check_if_chunk_exists<'a>(
     tx: &Pool<MySql>,

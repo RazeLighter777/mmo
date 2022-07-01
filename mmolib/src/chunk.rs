@@ -9,7 +9,7 @@ use crate::entity_id;
 
 pub const CHUNK_SIZE: usize = 32;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Chunk {
     blocks: [[block_type::BlockTypeId; CHUNK_SIZE]; CHUNK_SIZE],
 }
@@ -29,7 +29,7 @@ impl Chunk {
         Self { blocks: blocks }
     }
 }
-#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, Debug)]
+#[derive(Eq, Hash, PartialEq, Copy, Clone, Deserialize, Serialize, Debug)]
 pub struct ChunkId(u64);
 
 impl ChunkId {

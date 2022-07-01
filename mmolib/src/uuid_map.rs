@@ -16,7 +16,7 @@ impl UuidMap {
             entity_to_uuid: HashMap::new(),
         }
     }
-    pub(crate) fn add(&mut self, uuid: EntityId, entity: Entity) {
+    pub fn add(&mut self, uuid: EntityId, entity: Entity) {
         self.uuid_to_entity.insert(uuid, entity);
         self.entity_to_uuid.insert(entity, uuid);
     }
