@@ -124,10 +124,13 @@ impl Game {
                                 lk.active_connections
                                     .get_mut(user)
                                     .unwrap()
-                                    .set_player(entity_id);                            
+                                    .set_player(entity_id);
                                 info!("Player {} has loaded a character", user);
                             }
-                            info!("Player {} tried to spawn character without Join-ing game",user);
+                            info!(
+                                "Player {} tried to spawn character without Join-ing game",
+                                user
+                            );
                             req.handle(&ServerResponseType::Error {
                                 message: "Tried to spawn character in a game without joining",
                             });
@@ -145,10 +148,16 @@ impl Game {
                                 drop(lk);
                                 info!("Player {} has created a new character", user);
                                 let eid = spawn_player(&gm.clone(), user).await;
-                                let conn = gm.read().await.conn.clone();    
+                                let conn = gm.read().await.conn.clone();
                                 let lk = gm.read().await;
                                 let mut wlk = lk.world.lock().await;
-                                sql_loaders::save_entity(conn.clone(), eid, &mut *wlk, &lk.registry).await;
+                                sql_loaders::save_entity(
+                                    conn.clone(),
+                                    eid,
+                                    &mut *wlk,
+                                    &lk.registry,
+                                )
+                                .await;
                                 sql_loaders::spawn_player(conn, user, eid).await;
                             }
                         }
@@ -167,7 +176,8 @@ impl Game {
                 for (username, connection) in &lk.active_connections {
                     players.push(username.clone());
                 }
-                req.handle(&ServerResponseType::PlayerList { players }).await;
+                req.handle(&ServerResponseType::PlayerList { players })
+                    .await;
             }
             _ => {
                 warn!("Request sent to game was not handled")
@@ -217,25 +227,51 @@ async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
         .iter(wlk.get_world())
     {
         let mut chunks = Vec::new();
-        match lk.active_connections.get(&player.username) {
-            Some(connection) => {
-                let ids = GameWorld::get_chunks_in_radius_of_position(3, position.pos);
-                for id in ids {
-                    let chunk_map = wlk.get_chunk_map();
-                    match chunk_map.get(id) {
-                        Some(chunk) => {
-                            chunks.push((id, chunk.clone()));
-                        }
-                        None => {
-                            tracing::error!("Chunk not found within the radius of the player when attempting to send ticked message");
-                        }
+        let ids = GameWorld::get_chunks_in_radius_of_position(3, position.pos);
+        for id in ids {
+            let chunk_map = wlk.get_chunk_map();
+            match chunk_map.get(id) {
+                Some(chunk) => {
+                    if chunk_map.is_chunk_changed(id) {
+                        chunks.push((id, chunk.clone()));
                     }
                 }
-                let response = server_response_type::ServerResponseType::Ticked {
-                    world_name: wlk.get_world_name().to_owned(),
-                    chunks: chunks,
-                    entities: Vec::new(),
-                };
+                None => {
+                    tracing::error!("Chunk not found within the radius of the player when attempting to send ticked message");
+                }
+            }
+            //some wackiness here from bevy to detect which entities have changed.
+            for eid in wlk.get_entities_in_chunk(id) {
+                match wlk.get_uuid_map().get(eid).map(|x| *x) {
+                    Some(e) => {
+                        let e = wlk.get_world().entity(e);
+                        for c in e.archetype().components() {
+                            match wlk.get_world().storages().sparse_sets.get(c) {
+                                Some(set) => {
+                                    match set.get_ticks(e.id()) {
+                                        Some(ticks) => {
+                                            if ticks.is_changed(wlk.get_world().last_change_tick(), wlk.get_world().read_change_tick()) {
+
+                                            }
+                                        },
+                                        None => todo!(),
+                                    }
+                                },
+                                None => todo!(),
+                            }
+                        }
+                    },
+                    None => {},
+                }
+            }
+        }
+        let response = server_response_type::ServerResponseType::Ticked {
+            world_name: wlk.get_world_name().to_owned(),
+            chunks: chunks,
+            entities: Vec::new(),
+        };
+        match lk.active_connections.get(&player.username) {
+            Some(connection) => {
                 let conn = connection.clone();
                 let username = player.username.clone();
                 let gmcl = gm.clone();
@@ -257,7 +293,9 @@ async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
                 });
             }
             None => {
-                warn!("Player {} is not connected", player.username);
+                tracing::error!(
+                    "Player not found in active connections when attempting to send ticked message"
+                );
             }
         }
     }

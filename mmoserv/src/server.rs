@@ -160,7 +160,7 @@ impl Server {
                 task::spawn(async move {
                     let (wsw, mut wsr) = tokio_tungstenite::accept_async(conn)
                         .await
-                        //todo: handle error if weird non ws connection   
+                        //todo: handle error if weird non ws connection
                         .expect("Could not listen on the websocket connection")
                         .split();
                     //there can be multiple connection senders, but only one reader. That's why ws write (wsw) is in an arc.

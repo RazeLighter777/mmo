@@ -29,5 +29,5 @@ pub enum ServerResponseType {
     },
     PlayerList {
         players: Vec<String>,
-    }
+    },
 }
