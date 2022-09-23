@@ -1,11 +1,13 @@
 #![feature(const_type_name)]
 #![feature(arbitrary_enum_discriminant)]
-#![feature(scoped_threads)]
+#![allow(incomplete_features)]
+#![feature(unsize)]
+#![feature(specialization)]
 #![allow(unused)]
 #![deny(warnings)]
-#![feature(future_join, future_poll_fn)]
 pub mod block_type;
 pub mod chunk;
+pub mod util;
 pub mod chunk_generator;
 pub mod chunk_map;
 pub mod component;

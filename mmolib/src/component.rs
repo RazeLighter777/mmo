@@ -5,6 +5,12 @@ use crate::hashing;
 #[derive(Eq, Hash, PartialEq)]
 pub struct ComponentTypeId(u64);
 
+
+pub trait Networked {}
+
+pub trait SkipSerialization {}
+
+
 pub trait ComponentDataType: Component {}
 
 pub const fn get_type_id<DataType: 'static + ComponentDataType>() -> ComponentTypeId {

@@ -1,9 +1,12 @@
+
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
-use crate::component::ComponentTypeId;
+use crate::block_type::BlockType;
+use crate::component::{ComponentTypeId, Networked};
 use crate::game_world::GameWorld;
 use crate::raws::Raw;
+use crate::util::GetStatic;
 use crate::{
     block_type,
     component::{self, ComponentDataType},
@@ -59,6 +62,7 @@ impl RegistryBuilder {
             .type_registry
             .get_mut(std::any::TypeId::of::<T>())
             .unwrap();
+
         registration.insert(<ReflectComponent as FromType<T>>::from_type());
 
         self.registry
@@ -88,20 +92,14 @@ impl RegistryBuilder {
                 Ok(())
             },
         );
+        //Check if component is networked
+        
         self
     }
     pub fn load_block_raws(mut self, path: &[String], raws: &RawTree) -> RegistryBuilder {
         for block_raws in raws.search_for_all(path) {
-            match serde_json::from_value(block_raws.dat().clone()) {
-                Ok(v) => {
-                    let b: block_type::BlockType = v;
-                    self.registry
-                        .block_types
-                        .insert(hashing::string_hash(b.get_canonical_name()), b);
-                }
-                Err(e) => {
-                    panic!("Error deserializing block type {}", e)
-                }
+            if let Some(block) = block_raws.get::<BlockType>() {
+                self.registry.block_types.insert(block.get_id(), block);
             }
         }
         self

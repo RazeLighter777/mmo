@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::Read};
 
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::fs;
 
@@ -120,9 +121,17 @@ impl Raw {
     pub fn dat(&self) -> &Value {
         &self.dat
     }
+    pub fn get<RawType : 'static + DeserializeOwned> (&self) -> Option<RawType> {
+        if let Ok(res) = serde_json::from_value(self.dat.clone()) {
+            Some(res)
+        } else {
+            None
+        }
+    }
     pub fn path(&self) -> &Vec<String> {
         &self.path
     }
+
 }
 
 #[test]
