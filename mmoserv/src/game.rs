@@ -8,6 +8,7 @@ use mmolib::chunk_generator;
 use mmolib::entity_id;
 use mmolib::game_world::GameWorld;
 use mmolib::server_response_type;
+use mmolib::server_response_type::ComponentUpdate;
 use mmolib::server_response_type::ServerResponseType;
 use mmolib::uuid_map;
 use serde_json::json;
@@ -126,14 +127,16 @@ impl Game {
                                     .unwrap()
                                     .set_player(entity_id);
                                 info!("Player {} has loaded a character", user);
+                            } else {
+                                info!(
+                                    "Player {} tried to spawn character without Join-ing game",
+                                    user
+                                );
+                                req.handle(&ServerResponseType::Error {
+                                    message: "Tried to spawn character in a game without joining",
+                                })
+                                .await;
                             }
-                            info!(
-                                "Player {} tried to spawn character without Join-ing game",
-                                user
-                            );
-                            req.handle(&ServerResponseType::Error {
-                                message: "Tried to spawn character in a game without joining",
-                            });
                         }
                         None => {
                             if lk.active_connections.contains_key(user)
@@ -147,7 +150,7 @@ impl Game {
                                 drop(wlk);
                                 drop(lk);
                                 info!("Player {} has created a new character", user);
-                                let eid = spawn_player(&gm.clone(), user).await;
+                                let eid = spawn_or_load_player(&gm.clone(), user).await;
                                 let conn = gm.read().await.conn.clone();
                                 let lk = gm.read().await;
                                 let mut wlk = lk.world.lock().await;
@@ -158,7 +161,7 @@ impl Game {
                                     &lk.registry,
                                 )
                                 .await;
-                                sql_loaders::spawn_player(conn, user, eid).await;
+                                sql_loaders::add_player_to_user(conn, user, eid).await;
                             }
                         }
                     }
@@ -201,7 +204,7 @@ impl Game {
                 } //save every 25 ticks
                 send_ticked_messages(&gm).await;
                 join!(clear_trackers(&gm), delete_scheduled_entities(&gm));
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                //tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 trace!("Tick number {}", counter);
                 std::io::stdout().flush();
                 counter += 1;
@@ -221,14 +224,39 @@ async fn delete_scheduled_entities(gm: &Arc<RwLock<Game>>) {
 async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
     let lk = gm.read().await;
     let mut wlk = lk.world.lock().await;
-    for (player, position) in wlk
+    let component_changes = gm
+        .read()
+        .await
+        .registry
+        .get_network_change_serialization(wlk.get_world_mut());
+    let gmcl = gm.clone();
+    for (id, player, position) in wlk
         .get_world_mut()
-        .query::<(&mmolib::player::Player, &mmolib::position::Position)>()
+        .query::<(
+            &mmolib::entity_id::EntityId,
+            &mmolib::player::Player,
+            &mmolib::position::Position,
+        )>()
         .iter(wlk.get_world())
     {
+        let mut component_updates = Vec::new();
+        let chunks = game_world::GameWorld::get_chunks_in_radius_of_position(
+            wlk.get_render_distance(),
+            position.pos,
+        );
+        for c in chunks {
+            let ents = wlk.get_entities_in_chunk(c);
+            for e in ents {
+                if let Some(change) = component_changes.get(&e) {
+                    for up in change {
+                        component_updates.push(up.clone());
+                    }
+                }
+            }
+        }
         let response = server_response_type::ServerResponseType::Ticked {
             world_name: wlk.get_world_name().to_owned(),
-            component_updates: Vec::new(),
+            component_updates: component_updates,
             block_updates: Vec::new(),
         };
         match lk.active_connections.get(&player.username) {
@@ -254,7 +282,7 @@ async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
                 });
             }
             None => {
-                tracing::error!(
+                tracing::warn!(
                     "Player not found in active connections when attempting to send ticked message"
                 );
             }
@@ -282,23 +310,34 @@ async fn disconnect_username(gmcl: Arc<RwLock<Game>>, username: String) {
     }
     lk.active_connections.remove(&username);
 }
-async fn spawn_player(gm: &Arc<RwLock<Game>>, username: &str) -> entity_id::EntityId {
+async fn spawn_or_load_player(gm: &Arc<RwLock<Game>>, username: &str) -> entity_id::EntityId {
     let mut lk = gm.write().await;
-    let mut wlk = lk.world.lock().await;
-    let mut e = wlk.spawn();
-    e.insert(mmolib::player::Player {
-        username: username.to_owned(),
-        last_ping_timestamp: 0,
-    })
-    .insert(mmolib::position::Position {
-        pos: (128, 128),
-        load_with_chunk: false,
-    });
-    let id = *e.get::<entity_id::EntityId>().unwrap();
-    drop(wlk);
-    let mut conn = lk.active_connections.get_mut(username).unwrap();
-    conn.set_player(id);
-    id
+    let nm = lk.world.lock().await.get_world_name().to_owned();
+    if let Some(id) =
+        sql_loaders::check_if_player_exists_in_world(lk.conn.clone(), &nm, username).await
+    {
+        let mut wlk = lk.world.lock().await;
+        tracing::info!("Loading existing player {} {}", id, username);
+        sql_loaders::load_entity(lk.conn.clone(), id, &mut wlk, &lk.registry);
+        id
+    } else {
+        let mut wlk = lk.world.lock().await;
+        let mut e = wlk.spawn();
+        tracing::info!("Creating new player from username {}", username);
+        e.insert(mmolib::player::Player {
+            username: username.to_owned(),
+            last_ping_timestamp: 0,
+        })
+        .insert(mmolib::position::Position {
+            pos: (128, 128),
+            load_with_chunk: false,
+        });
+        let id = *e.get::<entity_id::EntityId>().unwrap();
+        drop(wlk);
+        let mut conn = lk.active_connections.get_mut(username).unwrap();
+        conn.set_player(id);
+        id
+    }
 }
 
 async fn load_world_state(gm: &Arc<RwLock<Game>>) {

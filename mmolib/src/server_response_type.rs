@@ -37,7 +37,7 @@ pub enum ServerResponseType {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub struct ComponentUpdate {
     entity_id: EntityId,
@@ -45,7 +45,7 @@ pub struct ComponentUpdate {
     component_update_type: ComponentUpdateType,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ComponentUpdateType {
     Removed,

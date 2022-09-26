@@ -124,7 +124,7 @@ pub async fn check_if_player_exists_in_world(
     }
 }
 
-pub async fn spawn_player(conn: Pool<MySql>, username: &str, entity_id: EntityId) -> bool {
+pub async fn add_player_to_user(conn: Pool<MySql>, username: &str, entity_id: EntityId) -> bool {
     let r = sqlx::query("INSERT INTO players (user_id,entity_id) VALUES ((SELECT user_id FROM users WHERE user_name = ?),?)")
         .bind(username)
         .bind(entity_id.id())
@@ -338,13 +338,14 @@ pub async fn save_entity<'a>(
 
         for (component_type, serialization, entity_id) in results {
             sqlx::query(
-            "INSERT INTO components (type_id, dat, entity_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE type_id=type_id",
+            "REPLACE INTO components (type_id, dat, entity_id) VALUES (?,?,?)",
         )
         .bind(&component_type)
         .bind(&serialization)
         .bind(entity_id)
         .execute(&conn)
         .await.expect("Could not insert into component table");
+        tracing::info!("Saving entity {} component_type {} serialization {} " , entity_id, component_type, serialization);
         }
     }
 }

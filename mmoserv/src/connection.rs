@@ -30,7 +30,7 @@ impl Connection {
         response: mmolib::server_response_type::ServerResponseType,
     ) -> Result<(), tokio_tungstenite::tungstenite::Error> {
         let mut lk = self.active_connection.write().await;
-        lk.send(Message::Binary(serde_cbor::to_vec(&response).unwrap()))
+        lk.send(Message::Text(serde_json::to_string(&response).unwrap()))
             .await?;
         Ok(())
     }

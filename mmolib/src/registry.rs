@@ -31,7 +31,7 @@ pub type ComponentSerializationFunction =
 pub type NetworkChangeDetectionQuery = fn(world: &mut World) -> Vec<(EntityId, ComponentUpdate)>;
 pub struct Registry {
     block_types: HashMap<block_type::BlockTypeId, block_type::BlockType>,
-    network_change_detectors: HashMap<String, NetworkChangeDetectionQuery>,
+    network_change_detectors: HashMap<ComponentTypeId, NetworkChangeDetectionQuery>,
     type_registry: TypeRegistry,
     de_ser_funcs: HashMap<ComponentTypeId, ComponentSerializationFunction>,
 }
@@ -107,19 +107,14 @@ impl RegistryBuilder {
     >(
         &mut self,
     ) {
-        self.registry.network_change_detectors.insert(
-            T::get_type_registration().name().to_owned(),
-            |w| {
+        self.registry
+            .network_change_detectors
+            .insert(get_type_id::<T>(), |w| {
                 let mut res = Vec::new();
                 let mut query = w.query::<(&T, ChangeTrackers<T>, Entity)>().for_each(
                     w,
                     |(comp, changed, entity)| {
-                        let uid = w
-                            .get_resource::<UuidMap>()
-                            .expect("UuidMap not in world")
-                            .get_by_entity(entity)
-                            .unwrap();
-                        if let Some(id) = w
+                        if let Some(uid) = w
                             .get_resource::<UuidMap>()
                             .expect("UuidMap not in world")
                             .get_by_entity(entity)
@@ -161,8 +156,7 @@ impl RegistryBuilder {
                     ));
                 });
                 res
-            },
-        );
+            });
     }
 
     fn register_reflect_component<
@@ -213,6 +207,27 @@ impl Registry {
     }
     pub fn type_registry(&self) -> &TypeRegistry {
         &self.type_registry
+    }
+    pub fn get_network_change_serialization(
+        &self,
+        w: &mut World,
+    ) -> HashMap<EntityId, Vec<ComponentUpdate>> {
+        //Collect all of the component updates in the world from the network change detectors
+        let mut res: HashMap<EntityId, Vec<ComponentUpdate>> = HashMap::new();
+        self.network_change_detectors.iter().for_each(|(comp, f)| {
+            let r = f(w);
+            for (eid, update) in r {
+                match res.entry(eid) {
+                    std::collections::hash_map::Entry::Occupied(mut v) => {
+                        v.get_mut().push(update);
+                    }
+                    std::collections::hash_map::Entry::Vacant(v) => {
+                        v.insert(vec![update]);
+                    }
+                }
+            }
+        });
+        res
     }
     pub fn add_component_to_entity(
         &self,

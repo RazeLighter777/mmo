@@ -68,3 +68,8 @@ pub fn update_position_map_on_position_removal(
         position_map.remove(entity);
     }
 }
+pub fn update_position_test_method(mut query: Query<(Entity, &mut position::Position)>) {
+    for (entity, mut position) in query.iter_mut() {
+        position.pos = (position.pos.0 + 1, position.pos.1 + 1);
+    }
+}

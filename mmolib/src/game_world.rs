@@ -52,6 +52,7 @@ impl GameWorldBuilder {
             SystemStage::parallel()
                 .with_system(uuid_system::uuid_system)
                 .with_system(position_map::update_position_map_on_position_change)
+                .with_system(position_map::update_position_test_method)
                 .with_system(position_map::update_position_map_on_position_removal),
         );
         let mut world = bevy_ecs::world::World::default();
@@ -80,6 +81,7 @@ impl GameWorldBuilder {
             .add_system_to_stage("update", system);
         self
     }
+
     pub fn add_event<EventType: Send + Sync + 'static>(mut self) -> Self {
         self.world
             .world
@@ -140,6 +142,9 @@ impl GameWorld {
         let mut r = self.world.entity_mut(res);
         r.insert(entity_id);
         r
+    }
+    pub fn get_render_distance(&self) -> i64 {
+        self.render_distance
     }
 
     pub fn run_event_update_closures(&mut self) {
