@@ -7,7 +7,6 @@
 #![deny(warnings)]
 pub mod block_type;
 pub mod chunk;
-pub mod util;
 pub mod chunk_generator;
 pub mod chunk_map;
 pub mod component;
@@ -25,5 +24,6 @@ pub mod registry;
 pub mod resource;
 pub mod server_request_type;
 pub mod server_response_type;
+pub mod util;
 pub mod uuid_map;
 mod uuid_system;

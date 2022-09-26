@@ -47,7 +47,7 @@ impl Game {
             conn: conn,
             registry: Arc::new(
                 mmolib::registry::RegistryBuilder::new()
-                    .load_block_raws(&["block".to_owned()], &rt)
+                    .load_block_raws(&["block"], &rt)
                     .build(),
             ),
             world: Arc::new(Mutex::new(
@@ -226,49 +226,10 @@ async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
         .query::<(&mmolib::player::Player, &mmolib::position::Position)>()
         .iter(wlk.get_world())
     {
-        let mut chunks = Vec::new();
-        let ids = GameWorld::get_chunks_in_radius_of_position(3, position.pos);
-        for id in ids {
-            let chunk_map = wlk.get_chunk_map();
-            match chunk_map.get(id) {
-                Some(chunk) => {
-                    if chunk_map.is_chunk_changed(id) {
-                        chunks.push((id, chunk.clone()));
-                    }
-                }
-                None => {
-                    tracing::error!("Chunk not found within the radius of the player when attempting to send ticked message");
-                }
-            }
-            //some wackiness here from bevy to detect which entities have changed.
-            for eid in wlk.get_entities_in_chunk(id) {
-                match wlk.get_uuid_map().get(eid).map(|x| *x) {
-                    Some(e) => {
-                        let e = wlk.get_world().entity(e);
-                        for c in e.archetype().components() {
-                            match wlk.get_world().storages().sparse_sets.get(c) {
-                                Some(set) => {
-                                    match set.get_ticks(e.id()) {
-                                        Some(ticks) => {
-                                            if ticks.is_changed(wlk.get_world().last_change_tick(), wlk.get_world().read_change_tick()) {
-
-                                            }
-                                        },
-                                        None => todo!(),
-                                    }
-                                },
-                                None => todo!(),
-                            }
-                        }
-                    },
-                    None => {},
-                }
-            }
-        }
         let response = server_response_type::ServerResponseType::Ticked {
             world_name: wlk.get_world_name().to_owned(),
-            chunks: chunks,
-            entities: Vec::new(),
+            component_updates: Vec::new(),
+            block_updates: Vec::new(),
         };
         match lk.active_connections.get(&player.username) {
             Some(connection) => {
@@ -299,8 +260,8 @@ async fn send_ticked_messages(gm: &Arc<RwLock<Game>>) {
             }
         }
     }
-    //remove timed out connections
 }
+//remove timed out connections
 
 async fn disconnect_username(gmcl: Arc<RwLock<Game>>, username: String) {
     let mut lk = gmcl.write().await;

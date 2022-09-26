@@ -13,7 +13,7 @@ pub enum RegistrationPolicy {
 pub struct Args {
     #[clap(short, long, default_value_t = 4200, help = "port to bind service to")]
     pub port: u16,
-    #[clap(long, default_value = "0.0.0.0", help = "ip to bind service to")]
+    #[clap(long, default_value = "127.0.0.1", help = "ip to bind service to")]
     pub ip: String,
     #[clap(
         long,

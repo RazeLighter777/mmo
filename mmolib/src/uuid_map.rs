@@ -31,7 +31,9 @@ impl UuidMap {
         match self.entity_to_uuid.get(&entity) {
             Some(uuid) => {
                 self.uuid_to_entity.remove(uuid);
-                self.entity_to_uuid.remove(&entity);
+                //the reason we don't do this is because we still need to send the uuid for networking purposes later
+                //TODO: Prevent removed entity uuids from piling up lol
+                //self.entity_to_uuid.remove(&entity);
             }
             None => {}
         }

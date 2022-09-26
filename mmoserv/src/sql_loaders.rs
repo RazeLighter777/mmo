@@ -262,7 +262,7 @@ pub async fn save_chunk<'a>(
 pub async fn save_entity<'a>(
     conn: Pool<MySql>,
     entity_id: entity_id::EntityId,
-    world: &'a  GameWorld,
+    world: &'a GameWorld,
     registry: &'a Registry,
 ) {
     // Acquire a new connection and immediately begin a transaction

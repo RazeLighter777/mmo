@@ -23,7 +23,7 @@ impl RawTree {
             level: HashMap::new(),
             subtrees: HashMap::new(),
         };
-        let paths = fs::read_dir(path).unwrap();
+        let paths = fs::read_dir(path).expect(&format!("Could not find path {}", path));
         for path in paths {
             match std::fs::File::open(path.unwrap().path()) {
                 Ok(mut file_handle) => {
@@ -67,12 +67,12 @@ impl RawTree {
             t.insert(raw, &path_remaining[1..path_remaining.len()]);
         }
     }
-    pub fn search_for_all(&self, path_remaining: &[String]) -> Vec<&Raw> {
+    pub fn search_for_all(&self, path_remaining: &[&str]) -> Vec<&Raw> {
         if path_remaining.len() == 0 {
             return self.level.values().collect();
         } else {
             println!("{:?} 3 {:?}", &path_remaining[0], self.subtrees);
-            match self.subtrees.get(&path_remaining[0]) {
+            match self.subtrees.get(path_remaining[0]) {
                 Some(tree) => return tree.search_for_all(&path_remaining[1..path_remaining.len()]),
                 None => {
                     return self.level.values().collect();
@@ -121,7 +121,7 @@ impl Raw {
     pub fn dat(&self) -> &Value {
         &self.dat
     }
-    pub fn get<RawType : 'static + DeserializeOwned> (&self) -> Option<RawType> {
+    pub fn get<RawType: 'static + DeserializeOwned>(&self) -> Option<RawType> {
         if let Ok(res) = serde_json::from_value(self.dat.clone()) {
             Some(res)
         } else {
@@ -131,11 +131,10 @@ impl Raw {
     pub fn path(&self) -> &Vec<String> {
         &self.path
     }
-
 }
 
 #[test]
 fn raw_search_all() {
     let rt = RawTree::new("C:\\Users\\justin\\Code\\mmo\\raws");
-    println!("len {}", rt.search_for_all(&["one".to_owned()]).len())
+    println!("len {}", rt.search_for_all(&["one"]).len())
 }

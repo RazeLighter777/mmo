@@ -217,7 +217,7 @@ impl Server {
     pub async fn create_world(&mut self, world_name: &str) -> bool {
         if sql_loaders::create_world(self.pool.clone(), world_name).await {
             let g = game::Game::new(
-                "C:\\Users\\justin\\Code\\mmo\\raws",
+                "C:\\Users\\justin.suess\\Code\\mmo\\raws",
                 self.pool.clone(),
                 world_name.to_owned(),
             );
@@ -234,7 +234,7 @@ impl Server {
     pub async fn load_world(&mut self, world_name: &str) -> bool {
         if sql_loaders::check_if_world_exists(self.pool.clone(), world_name).await {
             let g = game::Game::new(
-                "C:\\Users\\justin\\Code\\mmo\\raws",
+                "C:\\Users\\justin.suess\\Code\\mmo\\raws",
                 self.pool.clone(),
                 world_name.to_owned(),
             );
